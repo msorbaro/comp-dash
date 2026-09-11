@@ -141,14 +141,15 @@ def _log_run(conn, run_type: str, stats: dict) -> str:
     return status
 
 
-def capture_homepages(run_type: str = "weekly") -> dict:
+def capture_homepages(run_type: str = "weekly", only_own_brand: bool = False) -> dict:
     conn = get_conn()
     stats = {"competitors_scraped": 0, "changed": 0, "unchanged": 0, "errors": []}
 
+    query = "SELECT id, website_url FROM competitors WHERE is_active = TRUE AND website_url IS NOT NULL"
+    if only_own_brand:
+        query += " AND is_own_brand = TRUE"
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, website_url FROM competitors WHERE is_active = TRUE AND website_url IS NOT NULL"
-        )
+        cur.execute(query)
         competitors = cur.fetchall()
     conn.commit()  # release the read lock before the (multi-minute) external actor call
     stats["competitors_scraped"] = len(competitors)

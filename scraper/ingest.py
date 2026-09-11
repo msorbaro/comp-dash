@@ -69,11 +69,12 @@ def _insert_posts(conn, raw_items: list, run_type: str, by_handle: dict, backfil
     return stats
 
 
-def _get_active_competitors(conn):
+def _get_active_competitors(conn, only_own_brand: bool = False):
+    query = "SELECT id, instagram_handle, instagram_url FROM competitors WHERE is_active = TRUE"
+    if only_own_brand:
+        query += " AND is_own_brand = TRUE"
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, instagram_handle, instagram_url FROM competitors WHERE is_active = TRUE"
-        )
+        cur.execute(query)
         competitors = cur.fetchall()
     by_handle = {handle.lower(): (comp_id, url) for comp_id, handle, url in competitors}
     return competitors, by_handle
@@ -94,7 +95,7 @@ def _log_run(conn, run_type: str, competitors_scraped: int, stats: dict, errors:
     return status
 
 
-def ingest_new_posts(run_type: str = "weekly") -> dict:
+def ingest_new_posts(run_type: str = "weekly", only_own_brand: bool = False) -> dict:
     max_per_run = int(os.environ.get("MAX_POSTS_PER_RUN", "20"))
     backfill_days = int(os.environ.get("BACKFILL_DAYS", "90"))
     backfill_max_posts = int(os.environ.get("BACKFILL_MAX_POSTS", "40"))
@@ -104,7 +105,7 @@ def ingest_new_posts(run_type: str = "weekly") -> dict:
     errors = []
 
     with conn:
-        competitors, by_handle = _get_active_competitors(conn)
+        competitors, by_handle = _get_active_competitors(conn, only_own_brand)
         profile_urls = [url for _, _, url in competitors]
         conn.commit()  # release the read lock before the (potentially long) external actor call
 

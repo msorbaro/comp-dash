@@ -112,14 +112,15 @@ def _normalize(item: dict) -> dict:
     }
 
 
-def capture_ads(run_type: str = "weekly", results_limit: int = 30) -> dict:
+def capture_ads(run_type: str = "weekly", results_limit: int = 30, only_own_brand: bool = False) -> dict:
     conn = get_conn()
     stats = {"competitors_scraped": 0, "ads_added": 0, "ads_updated": 0, "errors": []}
 
+    query = "SELECT id, facebook_url FROM competitors WHERE is_active = TRUE AND facebook_url IS NOT NULL"
+    if only_own_brand:
+        query += " AND is_own_brand = TRUE"
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, facebook_url FROM competitors WHERE is_active = TRUE AND facebook_url IS NOT NULL"
-        )
+        cur.execute(query)
         competitors = cur.fetchall()
     conn.commit()  # release the read lock before the (potentially long) external actor call
     stats["competitors_scraped"] = len(competitors)
