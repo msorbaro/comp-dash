@@ -1,0 +1,133 @@
+"""Fetches new posts for every active competitor and upserts them into the
+database. Dedupes on `instagram_post_id`, so re-running is always safe.
+"""
+import datetime as dt
+import json
+import os
+
+from db.connection import get_conn
+from scraper.apify_client import fetch_posts, normalize_post
+
+
+def _insert_posts(conn, raw_items: list, run_type: str, by_handle: dict, backfill_days: int) -> dict:
+    """Normalizes + inserts raw Apify items already in hand. Split out from
+    ingest_new_posts so a completed Apify run's dataset can be re-applied to
+    the DB without paying for another scrape (see recover_run in this module).
+    """
+    stats = {"posts_added": 0, "posts_skipped_duplicate": 0}
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=backfill_days)
+
+    with conn.cursor() as cur:
+        for raw in raw_items:
+            post = normalize_post(raw)
+            if not post:
+                continue
+
+            match = by_handle.get(post["owner_username"])
+            if not match:
+                continue  # post from an account not in our competitor list (shouldn't happen)
+            competitor_id, _ = match
+
+            posted_at = post["posted_at"]
+            if run_type == "backfill" and posted_at:
+                posted_dt = dt.datetime.fromisoformat(posted_at.replace("Z", "+00:00"))
+                if posted_dt < cutoff:
+                    continue
+
+            cur.execute(
+                """
+                INSERT INTO posts (competitor_id, instagram_post_id, post_url, post_type,
+                                    posted_at, caption, media_url, like_count, comment_count,
+                                    view_count)
+                VALUES (%(competitor_id)s, %(instagram_post_id)s, %(post_url)s, %(post_type)s,
+                        %(posted_at)s, %(caption)s, %(media_url)s, %(like_count)s,
+                        %(comment_count)s, %(view_count)s)
+                ON CONFLICT (instagram_post_id) DO NOTHING
+                """,
+                {**post, "competitor_id": competitor_id},
+            )
+            if cur.rowcount == 0:
+                stats["posts_skipped_duplicate"] += 1
+            else:
+                stats["posts_added"] += 1
+
+    return stats
+
+
+def _get_active_competitors(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, instagram_handle, instagram_url FROM competitors WHERE is_active = TRUE"
+        )
+        competitors = cur.fetchall()
+    by_handle = {handle.lower(): (comp_id, url) for comp_id, handle, url in competitors}
+    return competitors, by_handle
+
+
+def _log_run(conn, run_type: str, competitors_scraped: int, stats: dict, errors: list) -> str:
+    status = "failed" if errors and stats["posts_added"] == 0 else ("partial" if errors else "success")
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO scrape_runs (run_type, competitors_scraped, posts_added,
+                                      posts_skipped_duplicate, errors, status)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (run_type, competitors_scraped, stats["posts_added"], stats["posts_skipped_duplicate"],
+             json.dumps(errors), status),
+        )
+    return status
+
+
+def ingest_new_posts(run_type: str = "weekly") -> dict:
+    max_per_run = int(os.environ.get("MAX_POSTS_PER_RUN", "20"))
+    backfill_days = int(os.environ.get("BACKFILL_DAYS", "90"))
+    backfill_max_posts = int(os.environ.get("BACKFILL_MAX_POSTS", "40"))
+    results_limit = max_per_run if run_type == "weekly" else backfill_max_posts
+
+    conn = get_conn()
+    errors = []
+
+    with conn:
+        competitors, by_handle = _get_active_competitors(conn)
+        profile_urls = [url for _, _, url in competitors]
+
+        try:
+            raw_items = fetch_posts(profile_urls, results_limit)
+        except Exception as exc:  # noqa: BLE001 - surface any scrape failure, don't crash the run
+            errors.append({"scope": "actor_run", "error": str(exc)})
+            raw_items = []
+
+        stats = _insert_posts(conn, raw_items, run_type, by_handle, backfill_days)
+        status = _log_run(conn, run_type, len(competitors), stats, errors)
+
+    stats["competitors_scraped"] = len(competitors)
+    stats["errors"] = errors
+    stats["status"] = status
+    return stats
+
+
+def recover_run(apify_run_id: str, run_type: str = "backfill") -> dict:
+    """Re-applies an already-completed Apify run's dataset to the DB, without
+    triggering a new (paid) scrape. Useful if the DB insert step failed after
+    a successful scrape.
+    """
+    from scraper.apify_client import ApifyClient  # local import, optional dep path
+
+    conn = get_conn()
+    backfill_days = int(os.environ.get("BACKFILL_DAYS", "90"))
+
+    with conn:
+        competitors, by_handle = _get_active_competitors(conn)
+
+        client = ApifyClient(os.environ["APIFY_TOKEN"])
+        run = client.run(apify_run_id).get()
+        raw_items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+
+        stats = _insert_posts(conn, raw_items, run_type, by_handle, backfill_days)
+        status = _log_run(conn, run_type, len(competitors), stats, [])
+
+    stats["competitors_scraped"] = len(competitors)
+    stats["errors"] = []
+    stats["status"] = status
+    return stats
