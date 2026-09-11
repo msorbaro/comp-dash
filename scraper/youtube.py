@@ -50,8 +50,10 @@ def capture_youtube(run_type: str = "weekly", max_results: int = 15, max_shorts:
     conn.commit()
     stats["competitors_scraped"] = len(competitors)
     # Successful items don't echo back the input URL - only `channelUsername`
-    # (the @handle, no @) - so match on that instead of the channel URL.
-    by_handle = {url.rstrip("/").split("@")[-1].lower(): cid for cid, url in competitors}
+    # (the @handle, no @) - so match on that instead of the channel URL. Take
+    # the last path segment regardless of whether it's an @handle or a legacy
+    # /user/name or /customname URL.
+    by_handle = {url.rstrip("/").split("/")[-1].lstrip("@").lower(): cid for cid, url in competitors}
 
     try:
         raw_items = _run_actor([url for _, url in competitors], max_results, max_shorts)
