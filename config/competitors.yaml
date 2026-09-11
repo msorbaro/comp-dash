@@ -301,8 +301,11 @@
   instagram_handle: brakesplus
   website_url: https://www.brakesplus.com
   facebook_url: https://www.facebook.com/brakesplusllc
+  youtube_url: https://www.youtube.com/@BrakesPlusAuto
+  x_handle: brakesplusllc
   groups: [Our Brands]
   is_own_brand: true
+  notes: "Instagram genuinely dormant since ~2025-07 after heavy 2024-2025 activity - confirmed via manual pagination check, not a scraping bug. YouTube channel confirmed by user (@BrakesPlusAuto, default guess @brakesplus was wrong) but its videos are ~6 years old - see MAX_AGE_DAYS filter in scraper/youtube.py. X handle confirmed by user as 'brakesplusllc' (default guess 'brakesplus' was wrong)."
 
 - name: Express Oil
   instagram_handle: expressoil

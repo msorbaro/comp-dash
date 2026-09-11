@@ -26,6 +26,7 @@ ALTER TABLE competitors ADD COLUMN IF NOT EXISTS is_own_brand BOOLEAN NOT NULL D
 ALTER TABLE competitors ADD COLUMN IF NOT EXISTS tiktok_handle TEXT;
 ALTER TABLE competitors ADD COLUMN IF NOT EXISTS youtube_url TEXT;
 ALTER TABLE competitors ADD COLUMN IF NOT EXISTS x_handle TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS video_url TEXT;
 
 CREATE TABLE IF NOT EXISTS competitor_groups (
     competitor_id  INTEGER NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,
@@ -85,6 +86,7 @@ CREATE TABLE IF NOT EXISTS ads (
     ad_url                TEXT NOT NULL,
     creative_type         TEXT NOT NULL CHECK (creative_type IN ('Image', 'Video', 'Carousel')),
     creative              BYTEA,
+    video_url             TEXT,
     caption               TEXT,
     headline              TEXT,
     platforms             TEXT[],
@@ -180,3 +182,52 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
 
 -- Idempotent migration for tables created before the `source` column existed.
 ALTER TABLE scrape_runs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'instagram';
+ALTER TABLE scrape_runs DROP CONSTRAINT IF EXISTS scrape_runs_source_check;
+ALTER TABLE scrape_runs ADD CONSTRAINT scrape_runs_source_check
+    CHECK (source IN ('instagram', 'homepage', 'ads', 'tiktok', 'youtube', 'x', 'google_ads'));
+
+-- ============================================================================
+-- See-Think-Do funnel stage (categorize/funnel_taxonomy.py) - one audience-
+-- intent label per piece of content, across every content table.
+-- ============================================================================
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS funnel_stage TEXT;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS funnel_stage_confidence TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS funnel_stage TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS funnel_stage_confidence TEXT;
+ALTER TABLE tiktok_videos ADD COLUMN IF NOT EXISTS funnel_stage TEXT;
+ALTER TABLE tiktok_videos ADD COLUMN IF NOT EXISTS funnel_stage_confidence TEXT;
+ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS funnel_stage TEXT;
+ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS funnel_stage_confidence TEXT;
+ALTER TABLE x_posts ADD COLUMN IF NOT EXISTS funnel_stage TEXT;
+ALTER TABLE x_posts ADD COLUMN IF NOT EXISTS funnel_stage_confidence TEXT;
+ALTER TABLE homepage_snapshots ADD COLUMN IF NOT EXISTS funnel_stage TEXT;
+ALTER TABLE homepage_snapshots ADD COLUMN IF NOT EXISTS funnel_stage_confidence TEXT;
+
+-- ============================================================================
+-- Google Search Ads (Google Ads Transparency Center) - both a competitor's own
+-- search ads AND any OTHER advertiser conquesting on their brand/domain terms.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS google_ads (
+    id                       SERIAL PRIMARY KEY,
+    competitor_id            INTEGER NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,
+    creative_id              TEXT NOT NULL UNIQUE,
+    advertiser_name          TEXT,
+    is_own_ad                BOOLEAN NOT NULL DEFAULT TRUE,
+    search_term              TEXT,
+    ad_format                TEXT,
+    ad_url                   TEXT,
+    image_url                TEXT,
+    creative                 BYTEA,
+    first_shown              DATE,
+    last_shown               DATE,
+    approx_days_shown        INTEGER,
+    is_active                BOOLEAN NOT NULL DEFAULT TRUE,
+    funnel_stage             TEXT,
+    funnel_stage_confidence  TEXT CHECK (funnel_stage_confidence IN ('high', 'medium', 'low')),
+    first_seen_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    scraped_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_google_ads_competitor ON google_ads(competitor_id);
+CREATE INDEX IF NOT EXISTS idx_google_ads_is_own_ad ON google_ads(is_own_ad);

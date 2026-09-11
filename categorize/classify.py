@@ -6,6 +6,7 @@ import os
 
 import anthropic
 
+from categorize.funnel_taxonomy import FUNNEL_STAGES, FUNNEL_SYSTEM_PROMPT
 from db.connection import get_conn
 
 CATEGORIES = [
@@ -69,6 +70,37 @@ def classify_caption(caption: str, post_type: str = "") -> tuple:
         return category, confidence
     except Exception:  # noqa: BLE001
         return "Other", "low"
+
+
+def classify_funnel_stage(text: str, category: str = "", context: str = "") -> tuple:
+    """Classifies a piece of text content into the See/Think/Do framework
+    (see categorize/funnel_taxonomy.py). Returns (stage, confidence), falling
+    back to ("Think", "low") - the middle/default stage - on any failure.
+    """
+    user_content = (
+        f"Content type: {context or 'social media post'}\n"
+        f"Assigned content category (for reference): {category or 'unknown'}\n"
+        f"Text: {text or '(no text)'}"
+    )
+    try:
+        resp = _get_client().messages.create(
+            model=MODEL,
+            max_tokens=80,
+            system=FUNNEL_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        raw_text = resp.content[0].text.strip()
+        if raw_text.startswith("```"):
+            raw_text = raw_text.strip("`")
+            raw_text = raw_text[raw_text.find("{"):raw_text.rfind("}") + 1]
+        parsed = json.loads(raw_text)
+        stage = parsed["stage"]
+        confidence = parsed.get("confidence", "medium")
+        if stage not in FUNNEL_STAGES:
+            return "Think", "low"
+        return stage, confidence
+    except Exception:  # noqa: BLE001
+        return "Think", "low"
 
 
 def classify_pending_posts(batch_size: int = 200, commit_every: int = 25) -> dict:

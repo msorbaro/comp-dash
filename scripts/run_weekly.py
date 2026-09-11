@@ -11,6 +11,7 @@ import pathlib
 
 from categorize.classify import classify_pending_posts
 from scraper.ads import capture_ads
+from scraper.google_ads import capture_google_ads
 from scraper.homepage import capture_homepages
 from scraper.ingest import ingest_new_posts
 from scraper.tiktok import capture_tiktok
@@ -42,6 +43,7 @@ def main():
     tiktok_stats = _safe("tiktok capture", capture_tiktok, run_type=run_type)
     youtube_stats = _safe("youtube capture", capture_youtube, run_type=run_type)
     x_stats = _safe("x capture", capture_x, run_type=run_type)
+    google_ads_stats = _safe("google ads capture", capture_google_ads, run_type=run_type)
 
     log_lines = [f"# Run log — {today} ({run_type})", ""]
 
@@ -82,11 +84,18 @@ def main():
         f"- Competitors checked: {x_stats.get('competitors_scraped', '—')}",
         f"- New posts added: {x_stats.get('posts_added', '—')}",
         f"- Status: {x_stats.get('status')}",
+        "",
+        "## Google Search Ads",
+        f"- Competitors checked: {google_ads_stats.get('competitors_scraped', '—')}",
+        f"- New ads found: {google_ads_stats.get('ads_added', '—')}",
+        f"- Existing ads updated: {google_ads_stats.get('ads_updated', '—')}",
+        f"- Status: {google_ads_stats.get('status')}",
     ]
 
     all_stats = [
         ("Instagram", ingest_stats), ("Homepage", homepage_stats), ("Ads", ads_stats),
         ("TikTok", tiktok_stats), ("YouTube", youtube_stats), ("X", x_stats),
+        ("Google Ads", google_ads_stats),
     ]
     for label, stats in all_stats:
         if stats.get("errors"):

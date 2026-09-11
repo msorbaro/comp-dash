@@ -46,23 +46,25 @@ def _first_non_template(*candidates):
 
 
 def _extract_media_url(snapshot: dict) -> tuple:
-    """Returns (creative_type, media_url_for_download)."""
+    """Returns (creative_type, thumbnail_url_for_download, playable_video_url)."""
     videos = snapshot.get("videos") or []
     images = snapshot.get("images") or []
     cards = snapshot.get("cards") or []
 
     if videos:
-        return "Video", videos[0].get("videoPreviewImageUrl")
+        v = videos[0]
+        return "Video", v.get("videoPreviewImageUrl"), v.get("videoHdUrl") or v.get("videoSdUrl")
     if images:
-        return "Image", images[0].get("originalImageUrl") or images[0].get("resizedImageUrl")
+        return "Image", images[0].get("originalImageUrl") or images[0].get("resizedImageUrl"), None
     if cards:
         card = cards[0]
-        if card.get("videoHdUrl") or card.get("video_hd_url"):
-            return ("Carousel" if len(cards) > 1 else "Video"), card.get("videoPreviewImageUrl") or card.get("video_preview_image_url")
+        video_url = card.get("videoHdUrl") or card.get("video_hd_url") or card.get("videoSdUrl")
+        if video_url:
+            return ("Carousel" if len(cards) > 1 else "Video"), card.get("videoPreviewImageUrl") or card.get("video_preview_image_url"), video_url
         img = card.get("originalImageUrl") or card.get("resizedImageUrl") or card.get("image_url")
         if img:
-            return ("Carousel" if len(cards) > 1 else "Image"), img
-    return "Image", None
+            return ("Carousel" if len(cards) > 1 else "Image"), img, None
+    return "Image", None, None
 
 
 def _download_and_resize(url: str):
@@ -88,7 +90,7 @@ def _normalize(item: dict) -> dict:
     cards = snapshot.get("cards") or []
     first_card = cards[0] if cards else {}
 
-    creative_type, media_url = _extract_media_url(snapshot)
+    creative_type, media_url, video_url = _extract_media_url(snapshot)
     caption = _first_non_template(
         (snapshot.get("body") or {}).get("text"),
         first_card.get("body"),
@@ -109,6 +111,7 @@ def _normalize(item: dict) -> dict:
         "end_date": (item.get("endDateFormatted") or "")[:10] or None,
         "is_active": bool(item.get("isActive")),
         "media_url": media_url,
+        "video_url": video_url,
     }
 
 
@@ -167,11 +170,12 @@ def capture_ads(run_type: str = "weekly", results_limit: int = 30, only_own_bran
             with conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO ads (competitor_id, ad_archive_id, ad_url, creative_type, creative,
-                                         caption, headline, platforms, start_date, end_date, is_active,
-                                         category, category_confidence)
+                                         video_url, caption, headline, platforms, start_date, end_date,
+                                         is_active, category, category_confidence)
                        VALUES (%(competitor_id)s, %(ad_archive_id)s, %(ad_url)s, %(creative_type)s,
-                               %(creative)s, %(caption)s, %(headline)s, %(platforms)s, %(start_date)s,
-                               %(end_date)s, %(is_active)s, %(category)s, %(category_confidence)s)
+                               %(creative)s, %(video_url)s, %(caption)s, %(headline)s, %(platforms)s,
+                               %(start_date)s, %(end_date)s, %(is_active)s, %(category)s,
+                               %(category_confidence)s)
                        ON CONFLICT (ad_archive_id) DO NOTHING""",
                     {**ad, "competitor_id": competitor_id, "creative": creative_bytes,
                      "category": theme, "category_confidence": confidence},

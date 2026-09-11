@@ -16,6 +16,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from categorize.funnel_taxonomy import FUNNEL_DEFINITIONS
 from db.connection import get_conn
 
 st.set_page_config(page_title="Competitor Research Dashboard", layout="wide", page_icon="📊")
@@ -27,12 +28,13 @@ st.set_page_config(page_title="Competitor Research Dashboard", layout="wide", pa
 # section headers, borders) so the eye learns "blue = Instagram" once.
 # ============================================================================
 PLATFORM = {
-    "Instagram":  {"icon": "📸", "color": "#2a78d6"},
-    "Website":    {"icon": "🌐", "color": "#eb6834"},
-    "Ads":        {"icon": "📣", "color": "#1baf7a"},
-    "TikTok":     {"icon": "🎵", "color": "#eda100"},
-    "YouTube":    {"icon": "▶️", "color": "#e87ba4"},
-    "X":          {"icon": "𝕏", "color": "#008300"},
+    "Instagram":   {"icon": "📸", "color": "#2a78d6"},
+    "Website":     {"icon": "🌐", "color": "#eb6834"},
+    "Ads":         {"icon": "📣", "color": "#1baf7a"},
+    "TikTok":      {"icon": "🎵", "color": "#eda100"},
+    "YouTube":     {"icon": "▶️", "color": "#e87ba4"},
+    "X":           {"icon": "𝕏", "color": "#008300"},
+    "Google Ads":  {"icon": "🔍", "color": "#4a3aa7"},
 }
 INK_PRIMARY = "#0b0b0b"
 INK_SECONDARY = "#52514e"
@@ -42,6 +44,8 @@ SURFACE = "#ffffff"
 PAGE_PLANE = "#f9f9f7"
 BORDER = "rgba(11,11,11,0.10)"
 EMPHASIS_GRAY = "#c3c2b7"
+
+FUNNEL_COLORS = {"See": "#2a78d6", "Think": "#eda100", "Do": "#e34948"}
 
 st.markdown(f"""
 <style>
@@ -113,8 +117,19 @@ def to_data_uri(raw: bytes) -> str:
     return f"data:image/jpeg;base64,{base64.b64encode(raw).decode()}"
 
 
+def tiktok_embed_html(video_url: str) -> str:
+    video_id = video_url.rstrip("/").split("/")[-1]
+    return (
+        f'<iframe src="https://www.tiktok.com/embed/v2/{video_id}" '
+        f'style="width:100%;height:580px;border:none;overflow:hidden;" '
+        f'allow="encrypted-media;" allowfullscreen></iframe>'
+    )
+
+
 def card_grid(rows: list, n_cols: int = 4, accent: str = INK_MUTED):
-    """rows: list of dicts with keys image (data-uri or None), title, caption, meta, link"""
+    """rows: list of dicts with keys image (data-uri or None), title, caption, meta, link,
+    and optionally video_url (direct playable video - e.g. an mp4) or embed_html (an iframe,
+    e.g. a TikTok embed) to reveal in a "Play" expander instead of the static image."""
     if not rows:
         empty_note("Nothing to show yet.")
         return
@@ -131,6 +146,12 @@ def card_grid(rows: list, n_cols: int = 4, accent: str = INK_MUTED):
                         f'font-size:0.75rem;">No image</div>',
                         unsafe_allow_html=True,
                     )
+                if row.get("video_url") or row.get("embed_html"):
+                    with st.expander("▶ Play video"):
+                        if row.get("embed_html"):
+                            st.components.v1.html(row["embed_html"], height=600)
+                        else:
+                            st.video(row["video_url"])
                 if row.get("title"):
                     st.markdown(f"**{row['title']}**")
                 if row.get("caption"):
@@ -151,7 +172,7 @@ def load_posts() -> pd.DataFrame:
         """
         SELECT p.id, p.competitor_id, p.instagram_post_id, p.post_url, p.post_type,
                p.posted_at, p.caption, p.media_url, p.like_count, p.comment_count,
-               p.view_count, p.category, p.category_confidence, p.scraped_at,
+               p.view_count, p.category, p.category_confidence, p.funnel_stage, p.scraped_at,
                c.name AS competitor_name, c.instagram_handle, c.is_own_brand,
                array_agg(cg.group_name) AS groups
         FROM posts p
@@ -190,7 +211,7 @@ def load_homepage_snapshots() -> pd.DataFrame:
     df = pd.read_sql(
         """
         SELECT h.id, h.competitor_id, h.captured_at, h.changed, h.theme, h.theme_confidence,
-               c.name AS competitor_name, c.is_own_brand
+               h.funnel_stage, c.name AS competitor_name, c.is_own_brand
         FROM homepage_snapshots h
         JOIN competitors c ON c.id = h.competitor_id
         ORDER BY h.competitor_id, h.captured_at
@@ -215,8 +236,8 @@ def load_ads() -> pd.DataFrame:
     conn = get_conn()
     df = pd.read_sql(
         """
-        SELECT a.id, a.competitor_id, a.ad_url, a.creative_type, a.caption, a.headline,
-               a.platforms, a.start_date, a.end_date, a.is_active, a.category,
+        SELECT a.id, a.competitor_id, a.ad_url, a.creative_type, a.video_url, a.caption, a.headline,
+               a.platforms, a.start_date, a.end_date, a.is_active, a.category, a.funnel_stage,
                c.name AS competitor_name, c.is_own_brand
         FROM ads a
         JOIN competitors c ON c.id = a.competitor_id
@@ -246,7 +267,7 @@ def load_tiktok() -> pd.DataFrame:
     df = pd.read_sql(
         """
         SELECT t.id, t.competitor_id, t.video_url, t.caption, t.posted_at, t.duration_seconds,
-               t.view_count, t.like_count, t.comment_count, t.share_count, t.category,
+               t.view_count, t.like_count, t.comment_count, t.share_count, t.category, t.funnel_stage,
                c.name AS competitor_name, c.is_own_brand
         FROM tiktok_videos t
         JOIN competitors c ON c.id = t.competitor_id
@@ -273,7 +294,7 @@ def load_youtube() -> pd.DataFrame:
     df = pd.read_sql(
         """
         SELECT y.id, y.competitor_id, y.video_url, y.title, y.caption, y.posted_at, y.duration,
-               y.video_type, y.view_count, y.like_count, y.comment_count, y.category,
+               y.video_type, y.view_count, y.like_count, y.comment_count, y.category, y.funnel_stage,
                c.name AS competitor_name, c.is_own_brand
         FROM youtube_videos y
         JOIN competitors c ON c.id = y.competitor_id
@@ -301,7 +322,7 @@ def load_x_posts() -> pd.DataFrame:
         """
         SELECT x.id, x.competitor_id, x.post_url, x.text, x.posted_at, x.like_count,
                x.retweet_count, x.reply_count, x.quote_count, x.view_count, x.is_retweet,
-               x.category, c.name AS competitor_name, c.is_own_brand
+               x.category, x.funnel_stage, c.name AS competitor_name, c.is_own_brand
         FROM x_posts x
         JOIN competitors c ON c.id = x.competitor_id
         ORDER BY x.posted_at DESC
@@ -310,6 +331,34 @@ def load_x_posts() -> pd.DataFrame:
     )
     df["posted_at"] = pd.to_datetime(df["posted_at"])
     return df
+
+
+@st.cache_data(ttl=600)
+def load_google_ads() -> pd.DataFrame:
+    conn = get_conn()
+    df = pd.read_sql(
+        """
+        SELECT g.id, g.competitor_id, g.advertiser_name, g.is_own_ad, g.search_term, g.ad_format,
+               g.ad_url, g.first_shown, g.last_shown, g.approx_days_shown, g.is_active,
+               g.funnel_stage, c.name AS competitor_name, c.is_own_brand
+        FROM google_ads g
+        JOIN competitors c ON c.id = g.competitor_id
+        ORDER BY g.last_shown DESC
+        """,
+        conn,
+    )
+    df["first_shown"] = pd.to_datetime(df["first_shown"])
+    df["last_shown"] = pd.to_datetime(df["last_shown"])
+    return df
+
+
+@st.cache_data(ttl=600)
+def load_google_ad_creative(ad_id: int):
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT creative FROM google_ads WHERE id = %s", (ad_id,))
+        row = cur.fetchone()
+    return to_data_uri(row[0]) if row and row[0] else None
 
 
 @st.cache_data(ttl=600)
@@ -345,6 +394,7 @@ ads = load_ads()
 tiktok = load_tiktok()
 youtube = load_youtube()
 x_posts = load_x_posts()
+google_ads = load_google_ads()
 competitor_meta = load_competitor_meta()
 last_run = load_last_run()
 
@@ -375,6 +425,7 @@ def _scope_filter(df):
 
 posts_s, homepages_s, ads_s = _scope_filter(posts), _scope_filter(homepages), _scope_filter(ads)
 tiktok_s, youtube_s, x_posts_s = _scope_filter(tiktok), _scope_filter(youtube), _scope_filter(x_posts)
+google_ads_s = _scope_filter(google_ads)
 meta_s = _scope_filter(competitor_meta)
 
 page = st.sidebar.radio("View", ["Brand Profile", "Cross-Competitor Trends"])
@@ -397,6 +448,9 @@ if page == "Brand Profile":
     tt = tiktok[tiktok["competitor_name"] == competitor_name]
     yt = youtube[youtube["competitor_name"] == competitor_name]
     xp = x_posts[x_posts["competitor_name"] == competitor_name]
+    gads = google_ads[google_ads["competitor_name"] == competitor_name]
+    gads_own = gads[gads["is_own_ad"]]
+    gads_conquest = gads[~gads["is_own_ad"]]
 
     # ---- Header ----
     badge = '<span class="badge badge-own">OWN BRAND</span>' if meta_row["is_own_brand"] else \
@@ -427,14 +481,14 @@ if page == "Brand Profile":
     )
     platform_counts = {
         "Instagram": len(ig), "Website": len(web), "Ads": len(brand_ads),
-        "TikTok": len(tt), "YouTube": len(yt), "X": len(xp),
+        "TikTok": len(tt), "YouTube": len(yt), "X": len(xp), "Google Ads": len(gads_own),
     }
     active_platforms = sum(1 for v in platform_counts.values() if v > 0)
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Total content tracked", f"{total_pieces:,}")
     k2.metric("Combined engagement", f"{int(total_engagement):,}", help="Sum of likes across IG/TikTok/YouTube + likes+retweets on X")
-    k3.metric("Active platforms", f"{active_platforms} / 6")
+    k3.metric("Active platforms", f"{active_platforms} / 7")
     k4.metric("Own brand" if meta_row["is_own_brand"] else "Competitive set",
               "Yes" if meta_row["is_own_brand"] else "—")
 
@@ -450,6 +504,67 @@ if page == "Brand Profile":
                            margin=dict(l=0, r=10, t=10, b=0), height=220,
                            xaxis=dict(gridcolor=GRIDLINE, zeroline=False))
         st.plotly_chart(fig, width="stretch")
+
+    # ---- Marketing Funnel: See / Think / Do ----
+    st.markdown(
+        '<div class="section-header" style="--accent:#6b6a63">'
+        '<span class="icon">🎯</span><span class="title">Marketing Funnel — See / Think / Do</span></div>',
+        unsafe_allow_html=True,
+    )
+    with st.expander("What do See / Think / Do mean for this segment?"):
+        for stage in ["See", "Think", "Do"]:
+            st.markdown(f"**{stage}** — {FUNNEL_DEFINITIONS[stage]}")
+
+    funnel_frames = []
+    for label, frame in [
+        ("Instagram", ig), ("Website", web), ("Ads", brand_ads), ("TikTok", tt),
+        ("YouTube", yt), ("X", xp), ("Google Ads", gads_own),
+    ]:
+        if not frame.empty and "funnel_stage" in frame.columns:
+            sub = frame[["funnel_stage"]].dropna().rename(columns={"funnel_stage": "stage"})
+            sub["platform"] = label
+            funnel_frames.append(sub)
+
+    if not funnel_frames or pd.concat(funnel_frames)["stage"].isna().all():
+        empty_note("No content has been classified into See/Think/Do yet.")
+    else:
+        funnel_df = pd.concat(funnel_frames, ignore_index=True)
+        media_filter = st.selectbox("Media type", ["All"] + sorted(funnel_df["platform"].unique()),
+                                     key="funnel_media_filter")
+        filtered = funnel_df if media_filter == "All" else funnel_df[funnel_df["platform"] == media_filter]
+
+        col_pie, col_summary = st.columns(2)
+        with col_pie:
+            counts = filtered["stage"].value_counts().reindex(["See", "Think", "Do"]).fillna(0).reset_index()
+            counts.columns = ["stage", "count"]
+            fig = px.pie(counts, names="stage", values="count", color="stage",
+                         color_discrete_map=FUNNEL_COLORS, hole=0.45)
+            fig.update_traces(textinfo="percent+label")
+            fig.update_layout(showlegend=False, margin=dict(l=0, r=0, t=10, b=0), height=280)
+            st.plotly_chart(fig, width="stretch")
+        with col_summary:
+            pct = (filtered["stage"].value_counts(normalize=True) * 100).to_dict()
+            see_pct, think_pct, do_pct = pct.get("See", 0), pct.get("Think", 0), pct.get("Do", 0)
+            dominant_stage, dominant_pct = max(
+                [("See", see_pct), ("Think", think_pct), ("Do", do_pct)], key=lambda t: t[1]
+            )
+            scope_label = media_filter if media_filter != "All" else "all content"
+            if dominant_pct >= 50:
+                lean = f"is heavily **{dominant_stage}-focused** ({dominant_pct:.0f}% of {scope_label})"
+            elif max(see_pct, think_pct, do_pct) - min(see_pct, think_pct, do_pct) < 15:
+                lean = "is **fairly balanced** across the funnel"
+            else:
+                lean = f"leans **{dominant_stage}-heavy** ({dominant_pct:.0f}% of {scope_label})"
+            st.markdown(f"**{competitor_name}'s** marketing {lean}.")
+            st.markdown(f"- 👀 See (awareness): **{see_pct:.0f}%**")
+            st.markdown(f"- 🤔 Think (consideration): **{think_pct:.0f}%**")
+            st.markdown(f"- 🛒 Do (conversion): **{do_pct:.0f}%**")
+            if do_pct >= 60:
+                st.caption("Skews toward bottom-funnel/promotional content - may be under-investing in broad "
+                           "awareness and consideration.")
+            elif see_pct >= 60:
+                st.caption("Skews toward top-funnel/awareness content - lighter on direct conversion pushes.")
+    st.divider()
 
     # ---- Instagram ----
     section_header("Instagram", "Instagram")
@@ -519,6 +634,7 @@ if page == "Brand Profile":
         top = brand_ads.sort_values("start_date", ascending=False).head(8)
         rows = [{
             "image": load_ad_creative(r["id"]),
+            "video_url": r["video_url"] if pd.notna(r["video_url"]) else None,
             "title": r["headline"] or r["creative_type"],
             "caption": (r["caption"] or "")[:140],
             "meta": f"{r['category']} · {'Running' if r['is_active'] else 'Ended'} · {', '.join(r['platforms'] or [])}",
@@ -543,6 +659,7 @@ if page == "Brand Profile":
         top = tt.sort_values("view_count", ascending=False).head(8)
         rows = [{
             "image": load_tiktok_thumbnail(r["id"]),
+            "embed_html": tiktok_embed_html(r["video_url"]),
             "title": f"▶️ {r['view_count']:,} · ❤️ {r['like_count']:,}",
             "caption": (r["caption"] or "")[:140],
             "meta": f"{r['category']} · {r['posted_at']:%b %d, %Y}",
@@ -599,6 +716,44 @@ if page == "Brand Profile":
                     unsafe_allow_html=True,
                 )
                 st.link_button("Open on X", r["post_url"])
+
+    # ---- Google Search Ads ----
+    section_header("Google Ads", "Google Search Ads")
+    if gads_own.empty and gads_conquest.empty:
+        empty_note("No Google Search ad activity found for this brand.")
+    else:
+        if not gads_own.empty:
+            active_gads = gads_own[gads_own["is_active"]]
+            c1, c2 = st.columns(2)
+            c1.metric("Currently running", len(active_gads))
+            c2.metric("Total tracked", len(gads_own))
+
+            top = gads_own.sort_values("last_shown", ascending=False).head(8)
+            rows = [{
+                "image": load_google_ad_creative(r["id"]),
+                "title": r["ad_format"],
+                "meta": f"{r['funnel_stage']} · {'Running' if r['is_active'] else 'Ended'} · "
+                        f"~{r['approx_days_shown']} days shown",
+                "link": r["ad_url"],
+            } for _, r in top.iterrows()]
+            card_grid(rows, accent=PLATFORM["Google Ads"]["color"])
+        else:
+            empty_note("No ads found running under this brand's own name on Google Search.")
+
+        if not gads_conquest.empty:
+            st.markdown("##### ⚠️ Competitors bidding on this brand's name")
+            conquesters = gads_conquest["advertiser_name"].value_counts().reset_index()
+            conquesters.columns = ["advertiser", "ad count"]
+            st.dataframe(conquesters, hide_index=True, width="stretch")
+            with st.expander("See their ad creatives"):
+                top_c = gads_conquest.sort_values("last_shown", ascending=False).head(8)
+                rows = [{
+                    "image": load_google_ad_creative(r["id"]),
+                    "title": r["advertiser_name"],
+                    "meta": f"{r['funnel_stage']} · targeting \"{r['search_term']}\"",
+                    "link": r["ad_url"],
+                } for _, r in top_c.iterrows()]
+                card_grid(rows, accent=PLATFORM["Google Ads"]["color"])
 
 # ============================================================================================
 # CROSS-COMPETITOR TRENDS — multi-brand comparisons (can't live on a single-brand page)

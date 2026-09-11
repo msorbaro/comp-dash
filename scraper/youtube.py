@@ -5,6 +5,7 @@ thumbnail permanently, and classifies content type via the shared taxonomy.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 
@@ -15,6 +16,7 @@ from db.connection import get_conn
 from scraper.media import fetch_thumbnail
 
 ACTOR_ID = "streamers/youtube-scraper"
+MAX_AGE_DAYS = 548  # ~18 months - old evergreen uploads aren't useful competitive signal
 
 
 def _run_actor(channel_urls: list, max_results: int, max_shorts: int) -> list:
@@ -61,12 +63,22 @@ def capture_youtube(run_type: str = "weekly", max_results: int = 15, max_shorts:
         stats["errors"].append({"scope": "actor_run", "error": str(exc)})
         raw_items = []
 
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=MAX_AGE_DAYS)
+
     for item in raw_items:
         username = (item.get("channelUsername") or "").lower()
         competitor_id = by_handle.get(username)
         video_id = item.get("id")
         if not competitor_id or not video_id:
             continue
+
+        posted_at = item.get("date")
+        if posted_at:
+            try:
+                if dt.datetime.fromisoformat(posted_at.replace("Z", "+00:00")) < cutoff:
+                    continue
+            except ValueError:
+                pass
 
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM youtube_videos WHERE youtube_video_id = %s", (str(video_id),))
