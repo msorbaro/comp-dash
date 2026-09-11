@@ -56,10 +56,13 @@ Also flagged, not blocking: **TJ Maxx, Firestone, Jiffy Lube, Mr. Appliance** al
 - [x] All three Apify actors confirmed + real costs measured (see `docs/apify_setup.md`).
 
 ### Own brands (added 2026-09-11)
-Researched via web search (lighter-touch pass than the competitor list — spot-check before relying on these for benchmarking):
-- [ ] **Mavis Discount Tire / Mavis Tires and Brakes** — merged into one entry per user confirmation; they share one Instagram (@mavis_tires) and website (mavis.com).
-- [ ] **Tire Kingdom, National Tire and Battery, Midas, Tuffy** — medium/low confidence handles (small follower counts and/or many regional franchise accounts made the "true" corporate account harder to pin down than the competitor list). Worth a manual double-check.
-- [ ] **Pep Boys, Brakes Plus, Express Oil, Town Fair Tire** — higher confidence, clear single corporate account found.
+Researched via web search (lighter-touch pass than the competitor list — spot-check before relying on these for benchmarking). Backfilled across all six pipelines (Instagram, website, Facebook ads, TikTok, YouTube, X) as of this date:
+- [x] **Mavis Discount Tire / Mavis Tires and Brakes** — merged into one entry per user confirmation; they share one Instagram (@mavis_tires) and website (mavis.com). X handle verified as the *singular* `mavis_tire` (different from the IG handle).
+- [x] **Tire Kingdom, National Tire and Battery** — X and YouTube handles corrected via search (different from their IG/default-guess slugs; YouTube channels are legacy non-@handle URLs). Their Instagram accounts are confirmed **dormant** — last posts from 2023, so the 90-day backfill window found nothing; the handful of historical posts found were inserted anyway (bypassing the date filter) so the dashboard reflects "dormant" rather than "no data."
+- [x] **Town Fair Tire** — X handle corrected (no underscores). Instagram is even more dormant — last post found was from **2014**; inserted for the same reason as above.
+- [x] **Tuffy** — no corporate TikTok/X/YouTube found at all (only Facebook/Instagram/LinkedIn); those fields are explicitly set to `null` in `config/competitors.yaml` rather than guessed. Its Instagram scrape also came back empty.
+- [x] **Pep Boys, Brakes Plus, Express Oil, Midas** — good coverage across most platforms.
+- Several own brands show **0 currently-running Facebook ads** (Midas, NTB, Tire Kingdom, Town Fair Tire, Tuffy) — this may reflect that they simply aren't running Meta ads right now, or an incorrect `facebook_url` guess; not independently confirmed either way.
 - [ ] Backfill window on first run: defaulting to **last 90 days** per account — adjustable in `.env` (`BACKFILL_DAYS`).
 
 ## Dashboard scope (per competitor + summary)
