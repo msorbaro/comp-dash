@@ -86,6 +86,27 @@ def _download_and_resize(url: str):
         return None
 
 
+MAX_VIDEO_BYTES = 20_000_000  # 20MB safety cap
+
+
+def _download_video(url: str):
+    """Downloads the actual video bytes for permanent storage - the signed
+    videoHdUrl/videoSdUrl from Facebook expires (similar to Instagram's CDN
+    links), so storing just the URL would silently break playback later.
+    """
+    if not url:
+        return None
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            content_length = resp.headers.get("Content-Length")
+            if not content_length or int(content_length) > MAX_VIDEO_BYTES:
+                return None  # unknown or too-large size - skip rather than risk a truncated file
+            return resp.read()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _normalize(item: dict) -> dict:
     snapshot = item.get("snapshot") or {}
     cards = snapshot.get("cards") or []
@@ -160,6 +181,7 @@ def capture_ads(run_type: str = "weekly", results_limit: int = 30, only_own_bran
             stats["ads_updated"] += 1
         else:
             creative_bytes = _download_and_resize(ad["media_url"])
+            creative_video = _download_video(ad["video_url"])
             ad_context = f"This is an ad creative. Ad caption: {ad['caption'] or '(none)'}"
             if creative_bytes:
                 theme, confidence = classify_image_theme(creative_bytes, extra_context=ad_context)
@@ -171,16 +193,16 @@ def capture_ads(run_type: str = "weekly", results_limit: int = 30, only_own_bran
             with conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO ads (competitor_id, ad_archive_id, ad_url, creative_type, creative,
-                                         video_url, caption, headline, platforms, start_date, end_date,
-                                         is_active, category, category_confidence, funnel_stage,
+                                         video_url, creative_video, caption, headline, platforms, start_date,
+                                         end_date, is_active, category, category_confidence, funnel_stage,
                                          funnel_stage_confidence)
                        VALUES (%(competitor_id)s, %(ad_archive_id)s, %(ad_url)s, %(creative_type)s,
-                               %(creative)s, %(video_url)s, %(caption)s, %(headline)s, %(platforms)s,
+                               %(creative)s, %(video_url)s, %(creative_video)s, %(caption)s, %(headline)s, %(platforms)s,
                                %(start_date)s, %(end_date)s, %(is_active)s, %(category)s,
                                %(category_confidence)s, %(funnel_stage)s, %(funnel_stage_confidence)s)
                        ON CONFLICT (ad_archive_id) DO NOTHING""",
                     {**ad, "competitor_id": competitor_id, "creative": creative_bytes,
-                     "category": theme, "category_confidence": confidence,
+                     "creative_video": creative_video, "category": theme, "category_confidence": confidence,
                      "funnel_stage": funnel_stage, "funnel_stage_confidence": funnel_confidence},
                 )
             stats["ads_added"] += 1

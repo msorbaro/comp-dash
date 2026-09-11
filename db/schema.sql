@@ -27,6 +27,7 @@ ALTER TABLE competitors ADD COLUMN IF NOT EXISTS tiktok_handle TEXT;
 ALTER TABLE competitors ADD COLUMN IF NOT EXISTS youtube_url TEXT;
 ALTER TABLE competitors ADD COLUMN IF NOT EXISTS x_handle TEXT;
 ALTER TABLE ads ADD COLUMN IF NOT EXISTS video_url TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS creative_video BYTEA;
 
 CREATE TABLE IF NOT EXISTS competitor_groups (
     competitor_id  INTEGER NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS ads (
     creative_type         TEXT NOT NULL CHECK (creative_type IN ('Image', 'Video', 'Carousel')),
     creative              BYTEA,
     video_url             TEXT,
+    creative_video        BYTEA,
     caption               TEXT,
     headline              TEXT,
     platforms             TEXT[],

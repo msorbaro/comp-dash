@@ -128,8 +128,9 @@ def tiktok_embed_html(video_url: str) -> str:
 
 def card_grid(rows: list, n_cols: int = 4, accent: str = INK_MUTED):
     """rows: list of dicts with keys image (data-uri or None), title, caption, meta, link,
-    and optionally video_url (direct playable video - e.g. an mp4) or embed_html (an iframe,
-    e.g. a TikTok embed) to reveal in a "Play" expander instead of the static image."""
+    and optionally video_url (raw video bytes OR a playable URL - anything st.video()
+    accepts) or embed_html (an iframe, e.g. a TikTok embed) to reveal in a "Play"
+    expander instead of the static image."""
     if not rows:
         empty_note("Nothing to show yet.")
         return
@@ -236,7 +237,8 @@ def load_ads() -> pd.DataFrame:
     conn = get_conn()
     df = pd.read_sql(
         """
-        SELECT a.id, a.competitor_id, a.ad_url, a.creative_type, a.video_url, a.caption, a.headline,
+        SELECT a.id, a.competitor_id, a.ad_url, a.creative_type,
+               a.creative_video IS NOT NULL AS has_video, a.caption, a.headline,
                a.platforms, a.start_date, a.end_date, a.is_active, a.category, a.funnel_stage,
                c.name AS competitor_name, c.is_own_brand
         FROM ads a
@@ -259,6 +261,16 @@ def load_ad_creative(ad_id: int):
         cur.execute("SELECT creative FROM ads WHERE id = %s", (ad_id,))
         row = cur.fetchone()
     return to_data_uri(row[0]) if row and row[0] else None
+
+
+@st.cache_data(ttl=600)
+def load_ad_video(ad_id: int):
+    """Returns raw video bytes (not a data-uri - st.video takes bytes directly)."""
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT creative_video FROM ads WHERE id = %s", (ad_id,))
+        row = cur.fetchone()
+    return row[0] if row and row[0] else None
 
 
 @st.cache_data(ttl=600)
@@ -631,10 +643,12 @@ if page == "Brand Profile":
         mix.columns = ["category", "count"]
         styled_bar(mix, "count", "category", PLATFORM["Ads"]["color"], "# of ads")
 
-        top = brand_ads.sort_values("start_date", ascending=False).head(8)
+        # Prioritize video ads into the visible set - sorting by date alone can
+        # bury every video creative behind more-recent image/carousel ads.
+        top = brand_ads.sort_values(["has_video", "start_date"], ascending=[False, False]).head(8)
         rows = [{
             "image": load_ad_creative(r["id"]),
-            "video_url": r["video_url"] if pd.notna(r["video_url"]) else None,
+            "video_url": load_ad_video(r["id"]) if r["has_video"] else None,
             "title": r["headline"] or r["creative_type"],
             "caption": (r["caption"] or "")[:140],
             "meta": f"{r['category']} · {'Running' if r['is_active'] else 'Ended'} · {', '.join(r['platforms'] or [])}",
