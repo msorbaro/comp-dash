@@ -3,6 +3,13 @@
 Reads ONLY from the database (never scrapes live). Run with:
     streamlit run dashboard/app.py
 """
+import sys
+from pathlib import Path
+
+# Streamlit runs this script with only its own directory on sys.path, so the
+# project root (containing the `db` package) needs to be added explicitly.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
