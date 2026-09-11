@@ -21,7 +21,7 @@ import imagehash
 from apify_client import ApifyClient
 from PIL import Image
 
-from categorize.vision import classify_image_theme
+from categorize.vision import classify_image_funnel_stage, classify_image_theme
 from db.connection import get_conn
 
 ACTOR_ID = "apify/screenshot-url"
@@ -90,32 +90,36 @@ def _process_screenshots(conn, competitors: list, raw_screenshots: dict, stats: 
 
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT image_hash, theme, theme_confidence FROM homepage_snapshots
-                   WHERE competitor_id = %s ORDER BY captured_at DESC LIMIT 1""",
+                """SELECT image_hash, theme, theme_confidence, funnel_stage, funnel_stage_confidence
+                   FROM homepage_snapshots WHERE competitor_id = %s ORDER BY captured_at DESC LIMIT 1""",
                 (competitor_id,),
             )
             prev = cur.fetchone()
 
         changed = True
         theme, confidence = None, None
+        funnel_stage, funnel_confidence = None, None
         if prev:
-            prev_hash, prev_theme, prev_confidence = prev
+            prev_hash, prev_theme, prev_confidence, prev_funnel_stage, prev_funnel_confidence = prev
             distance = imagehash.hex_to_hash(new_hash) - imagehash.hex_to_hash(prev_hash)
             if distance <= HASH_MATCH_THRESHOLD:
                 changed = False
                 theme, confidence = prev_theme, prev_confidence
+                funnel_stage, funnel_confidence = prev_funnel_stage, prev_funnel_confidence
 
         if changed:
-            theme, confidence = classify_image_theme(
-                jpeg_bytes, extra_context="This is a screenshot of a company's website homepage."
-            )
+            homepage_context = "This is a screenshot of a company's website homepage."
+            theme, confidence = classify_image_theme(jpeg_bytes, extra_context=homepage_context)
+            funnel_stage, funnel_confidence = classify_image_funnel_stage(jpeg_bytes, extra_context=homepage_context)
 
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO homepage_snapshots
-                       (competitor_id, screenshot, image_hash, changed, theme, theme_confidence)
-                   VALUES (%s, %s, %s, %s, %s, %s)""",
-                (competitor_id, jpeg_bytes if changed else None, new_hash, changed, theme, confidence),
+                       (competitor_id, screenshot, image_hash, changed, theme, theme_confidence,
+                        funnel_stage, funnel_stage_confidence)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                (competitor_id, jpeg_bytes if changed else None, new_hash, changed, theme, confidence,
+                 funnel_stage, funnel_confidence),
             )
         conn.commit()
 

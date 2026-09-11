@@ -18,7 +18,8 @@ import urllib.request
 from apify_client import ApifyClient
 from PIL import Image
 
-from categorize.vision import classify_image_theme
+from categorize.classify import classify_funnel_stage
+from categorize.vision import classify_image_funnel_stage, classify_image_theme
 from db.connection import get_conn
 
 ACTOR_ID = "apify/facebook-ads-scraper"
@@ -159,26 +160,28 @@ def capture_ads(run_type: str = "weekly", results_limit: int = 30, only_own_bran
             stats["ads_updated"] += 1
         else:
             creative_bytes = _download_and_resize(ad["media_url"])
+            ad_context = f"This is an ad creative. Ad caption: {ad['caption'] or '(none)'}"
             if creative_bytes:
-                theme, confidence = classify_image_theme(
-                    creative_bytes,
-                    extra_context=f"This is an ad creative. Ad caption: {ad['caption'] or '(none)'}",
-                )
+                theme, confidence = classify_image_theme(creative_bytes, extra_context=ad_context)
+                funnel_stage, funnel_confidence = classify_image_funnel_stage(creative_bytes, extra_context=ad_context)
             else:
                 theme, confidence = "Mixed / Other", "low"
+                funnel_stage, funnel_confidence = classify_funnel_stage(ad["caption"] or "", "", "Ad caption")
 
             with conn.cursor() as cur:
                 cur.execute(
                     """INSERT INTO ads (competitor_id, ad_archive_id, ad_url, creative_type, creative,
                                          video_url, caption, headline, platforms, start_date, end_date,
-                                         is_active, category, category_confidence)
+                                         is_active, category, category_confidence, funnel_stage,
+                                         funnel_stage_confidence)
                        VALUES (%(competitor_id)s, %(ad_archive_id)s, %(ad_url)s, %(creative_type)s,
                                %(creative)s, %(video_url)s, %(caption)s, %(headline)s, %(platforms)s,
                                %(start_date)s, %(end_date)s, %(is_active)s, %(category)s,
-                               %(category_confidence)s)
+                               %(category_confidence)s, %(funnel_stage)s, %(funnel_stage_confidence)s)
                        ON CONFLICT (ad_archive_id) DO NOTHING""",
                     {**ad, "competitor_id": competitor_id, "creative": creative_bytes,
-                     "category": theme, "category_confidence": confidence},
+                     "category": theme, "category_confidence": confidence,
+                     "funnel_stage": funnel_stage, "funnel_stage_confidence": funnel_confidence},
                 )
             stats["ads_added"] += 1
 

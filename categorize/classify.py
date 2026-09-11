@@ -136,3 +136,36 @@ def classify_pending_posts(batch_size: int = 200, commit_every: int = 25) -> dic
 
     conn.commit()
     return stats
+
+
+def classify_pending_funnel_stage(batch_size: int = 2000, commit_every: int = 25) -> dict:
+    """Assigns See/Think/Do to Instagram posts that already have a category
+    but no funnel_stage yet (mirrors classify_pending_posts's deferred/batch
+    pattern - Instagram is the one platform that classifies category after
+    ingest rather than inline).
+    """
+    conn = get_conn()
+    stats = {"classified": 0}
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT id, caption, category FROM posts
+               WHERE category IS NOT NULL AND funnel_stage IS NULL LIMIT %s""",
+            (batch_size,),
+        )
+        pending = cur.fetchall()
+    conn.commit()
+
+    for post_id, caption, category in pending:
+        stage, confidence = classify_funnel_stage(caption, category, "Instagram post")
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE posts SET funnel_stage = %s, funnel_stage_confidence = %s WHERE id = %s",
+                (stage, confidence, post_id),
+            )
+        stats["classified"] += 1
+        if stats["classified"] % commit_every == 0:
+            conn.commit()
+
+    conn.commit()
+    return stats

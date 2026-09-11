@@ -10,7 +10,7 @@ import os
 
 from apify_client import ApifyClient
 
-from categorize.classify import classify_caption
+from categorize.classify import classify_caption, classify_funnel_stage
 from db.connection import get_conn
 from scraper.media import fetch_thumbnail
 
@@ -69,6 +69,7 @@ def capture_tiktok(run_type: str = "weekly", results_per_page: int = 20, only_ow
 
         caption = item.get("text")
         category, confidence = classify_caption(caption, "TikTok video")
+        funnel_stage, funnel_confidence = classify_funnel_stage(caption, category, "TikTok video")
         video_meta = item.get("videoMeta") or {}
         thumbnail = fetch_thumbnail(video_meta.get("coverUrl"))
 
@@ -77,10 +78,11 @@ def capture_tiktok(run_type: str = "weekly", results_per_page: int = 20, only_ow
                 """INSERT INTO tiktok_videos (competitor_id, tiktok_video_id, video_url, caption,
                                                posted_at, duration_seconds, thumbnail, view_count,
                                                like_count, comment_count, share_count, category,
-                                               category_confidence)
+                                               category_confidence, funnel_stage, funnel_stage_confidence)
                    VALUES (%(competitor_id)s, %(video_id)s, %(video_url)s, %(caption)s, %(posted_at)s,
                            %(duration)s, %(thumbnail)s, %(view_count)s, %(like_count)s,
-                           %(comment_count)s, %(share_count)s, %(category)s, %(confidence)s)
+                           %(comment_count)s, %(share_count)s, %(category)s, %(confidence)s,
+                           %(funnel_stage)s, %(funnel_confidence)s)
                    ON CONFLICT (tiktok_video_id) DO NOTHING""",
                 {
                     "competitor_id": competitor_id,
@@ -92,6 +94,8 @@ def capture_tiktok(run_type: str = "weekly", results_per_page: int = 20, only_ow
                     "thumbnail": thumbnail,
                     "view_count": item.get("playCount"),
                     "like_count": item.get("diggCount"),
+                    "funnel_stage": funnel_stage,
+                    "funnel_confidence": funnel_confidence,
                     "comment_count": item.get("commentCount"),
                     "share_count": item.get("shareCount"),
                     "category": category,

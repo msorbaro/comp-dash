@@ -9,7 +9,7 @@ import os
 
 from apify_client import ApifyClient
 
-from categorize.classify import classify_caption
+from categorize.classify import classify_caption, classify_funnel_stage
 from db.connection import get_conn
 
 ACTOR_ID = "apidojo/tweet-scraper"
@@ -63,15 +63,18 @@ def capture_x(run_type: str = "weekly", max_items_per_handle: int = 20, only_own
 
         text = item.get("fullText") or item.get("text")
         category, confidence = classify_caption(text, "X post")
+        funnel_stage, funnel_confidence = classify_funnel_stage(text, category, "X post")
 
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO x_posts (competitor_id, tweet_id, post_url, text, posted_at,
                                          like_count, retweet_count, reply_count, quote_count,
-                                         view_count, is_retweet, category, category_confidence)
+                                         view_count, is_retweet, category, category_confidence,
+                                         funnel_stage, funnel_stage_confidence)
                    VALUES (%(competitor_id)s, %(tweet_id)s, %(post_url)s, %(text)s, %(posted_at)s,
                            %(like_count)s, %(retweet_count)s, %(reply_count)s, %(quote_count)s,
-                           %(view_count)s, %(is_retweet)s, %(category)s, %(confidence)s)
+                           %(view_count)s, %(is_retweet)s, %(category)s, %(confidence)s,
+                           %(funnel_stage)s, %(funnel_confidence)s)
                    ON CONFLICT (tweet_id) DO NOTHING""",
                 {
                     "competitor_id": competitor_id,
@@ -87,6 +90,8 @@ def capture_x(run_type: str = "weekly", max_items_per_handle: int = 20, only_own
                     "is_retweet": bool(item.get("isRetweet")),
                     "category": category,
                     "confidence": confidence,
+                    "funnel_stage": funnel_stage,
+                    "funnel_confidence": funnel_confidence,
                 },
             )
         stats["posts_added"] += 1
