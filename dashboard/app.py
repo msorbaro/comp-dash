@@ -374,6 +374,12 @@ def load_google_ad_creative(ad_id: int):
 
 
 @st.cache_data(ttl=600)
+def load_competitor_groups() -> pd.DataFrame:
+    conn = get_conn()
+    return pd.read_sql("SELECT competitor_id, group_name FROM competitor_groups", conn)
+
+
+@st.cache_data(ttl=600)
 def load_competitor_meta() -> pd.DataFrame:
     conn = get_conn()
     return pd.read_sql(
@@ -422,6 +428,18 @@ if competitor_meta.empty:
     st.warning("No competitors in the database yet. Run `python -m scripts.init_db` first.")
     st.stop()
 
+# Cross-page navigation (zoom into a brand, jump to a category) works by having
+# button callbacks stash a request under a "_pending_*" key and call st.rerun() -
+# Streamlit forbids writing to a widget's own session_state key after that
+# widget has already been instantiated in the same run, so the request has to
+# be applied here, before any of the widgets below are created.
+for _widget_key, _pending_key in [
+    ("nav_view", "_pending_view"), ("nav_brand_label", "_pending_brand_label"),
+    ("nav_category", "_pending_category"),
+]:
+    if _pending_key in st.session_state:
+        st.session_state[_widget_key] = st.session_state.pop(_pending_key)
+
 scope = st.sidebar.radio("Scope", ["All", "My brands only", "Competitors only"])
 
 
@@ -440,17 +458,56 @@ tiktok_s, youtube_s, x_posts_s = _scope_filter(tiktok), _scope_filter(youtube), 
 google_ads_s = _scope_filter(google_ads)
 meta_s = _scope_filter(competitor_meta)
 
-page = st.sidebar.radio("View", ["Brand Profile", "Cross-Competitor Trends"])
+def brand_label(name: str) -> str:
+    is_own = competitor_meta.loc[competitor_meta["name"] == name, "is_own_brand"].iloc[0]
+    return ("🏠 " + name) if is_own else name
+
+
+def goto_brand(name: str):
+    st.session_state["_pending_view"] = "Brand Profile"
+    st.session_state["_pending_brand_label"] = brand_label(name)
+    st.rerun()
+
+
+def zoom_in_buttons(names: list, key_prefix: str, n_cols: int = 4):
+    names = sorted(names)
+    if not names:
+        return
+    cols = st.columns(min(n_cols, len(names)))
+    for i, name in enumerate(names):
+        with cols[i % len(cols)]:
+            if st.button(f"🔎 {name}", key=f"{key_prefix}_{name}", width="stretch"):
+                goto_brand(name)
+
+
+PAGE_BANNERS = {
+    "Brand Profile": ("🏢", "Brand Profile", "#2a78d6"),
+    "Category Detail": ("📁", "Category View", "#eb6834"),
+    "Category Rollup": ("🗂️", "Category Rollup — All Categories", "#4a3aa7"),
+    "Cross-Competitor Trends": ("📈", "Cross-Competitor Trends", "#008300"),
+}
+
+page = st.sidebar.radio(
+    "View", ["Brand Profile", "Category Detail", "Category Rollup", "Cross-Competitor Trends"],
+    key="nav_view",
+)
+_icon, _label, _color = PAGE_BANNERS[page]
+st.markdown(
+    f'<div style="background:{_color}1a;border-left:5px solid {_color};padding:0.5rem 1rem;'
+    f'border-radius:6px;margin-bottom:1rem;font-weight:700;font-size:1.05rem;">'
+    f'{_icon}&nbsp;&nbsp;YOU ARE VIEWING: {_label.upper()}</div>',
+    unsafe_allow_html=True,
+)
 
 # ============================================================================================
 # BRAND PROFILE — everything about one brand, one page, top to bottom
 # ============================================================================================
 if page == "Brand Profile":
-    names_sorted = sorted(meta_s["name"].unique(), key=lambda n: (
-        not meta_s.loc[meta_s["name"] == n, "is_own_brand"].iloc[0], n
+    names_sorted = sorted(competitor_meta["name"].unique(), key=lambda n: (
+        not competitor_meta.loc[competitor_meta["name"] == n, "is_own_brand"].iloc[0], n
     ))
-    labels = {n: ("🏠 " + n if meta_s.loc[meta_s["name"] == n, "is_own_brand"].iloc[0] else n) for n in names_sorted}
-    chosen_label = st.sidebar.selectbox("Brand", [labels[n] for n in names_sorted])
+    labels = {n: brand_label(n) for n in names_sorted}
+    chosen_label = st.sidebar.selectbox("Brand", [labels[n] for n in names_sorted], key="nav_brand_label")
     competitor_name = next(n for n in names_sorted if labels[n] == chosen_label)
     meta_row = competitor_meta[competitor_meta["name"] == competitor_name].iloc[0]
 
@@ -469,6 +526,18 @@ if page == "Brand Profile":
             '<span class="badge badge-competitor">COMPETITOR</span>'
     st.markdown(f'<div class="brand-header"><span class="brand-title">{competitor_name}</span>{badge}</div>',
                 unsafe_allow_html=True)
+
+    brand_groups = load_competitor_groups()
+    my_groups = sorted(brand_groups.loc[brand_groups["competitor_id"] == meta_row["id"], "group_name"])
+    if my_groups:
+        st.caption("Competitive set(s): " + ", ".join(my_groups))
+        group_cols = st.columns(len(my_groups))
+        for col, g in zip(group_cols, my_groups):
+            with col:
+                if st.button(f"← Back to \"{g}\" category", key=f"back_to_{g}", width="stretch"):
+                    st.session_state["_pending_view"] = "Category Detail"
+                    st.session_state["_pending_category"] = g
+                    st.rerun()
 
     links = [
         ("Instagram", meta_row["instagram_url"]), ("Website", meta_row["website_url"]),
@@ -768,6 +837,239 @@ if page == "Brand Profile":
                     "link": r["ad_url"],
                 } for _, r in top_c.iterrows()]
                 card_grid(rows, accent=PLATFORM["Google Ads"]["color"])
+
+# ============================================================================================
+# CATEGORY DETAIL — one competitive set, every brand in it, side by side by channel
+# ============================================================================================
+elif page == "Category Detail":
+    groups_meta = load_competitor_groups().merge(
+        competitor_meta[["id", "name"]], left_on="competitor_id", right_on="id"
+    )
+    all_categories = sorted(groups_meta["group_name"].unique())
+    if not all_categories:
+        empty_note("No competitive-set groups found.")
+        st.stop()
+
+    default_idx = all_categories.index(st.session_state["nav_category"]) \
+        if st.session_state.get("nav_category") in all_categories else 0
+    category = st.sidebar.selectbox("Category", all_categories, index=default_idx, key="nav_category")
+
+    st.header(f"📁 Category: {category}")
+    brand_names = sorted(groups_meta.loc[groups_meta["group_name"] == category, "name"].unique())
+    st.caption(f"{len(brand_names)} brand(s) in this competitive set: " + ", ".join(brand_names))
+
+    def _channel_table(df: pd.DataFrame, date_col: str, category_col: str, engagement_col: str,
+                        engagement_label: str, platform_key: str):
+        sub = df[df["competitor_name"].isin(brand_names)].copy()
+        if sub.empty:
+            empty_note(f"No {platform_key} content tracked for brands in this category.")
+            return
+        sub[date_col] = pd.to_datetime(sub[date_col])
+        sub["week"] = sub[date_col].dt.to_period("W").dt.start_time
+
+        cadence = sub.groupby("competitor_name").agg(
+            posts=("id", "count"), weeks=("week", "nunique")
+        ).reset_index()
+        cadence["posts_per_week"] = (cadence["posts"] / cadence["weeks"].clip(lower=1)).round(1)
+
+        top_cat = (
+            sub.dropna(subset=[category_col]).groupby("competitor_name")[category_col]
+            .agg(lambda s: s.value_counts().idxmax() if len(s) else "—")
+            .reset_index(name="Most common content")
+        )
+        engagement = sub.groupby("competitor_name")[engagement_col].mean().round(0).reset_index()
+
+        summary = cadence.merge(top_cat, on="competitor_name", how="left") \
+                          .merge(engagement, on="competitor_name", how="left") \
+                          .sort_values("posts_per_week", ascending=False)
+
+        styled_bar(summary[["competitor_name", "posts_per_week"]], "posts_per_week", "competitor_name",
+                   PLATFORM[platform_key]["color"], "Posts / week")
+        st.dataframe(
+            summary.rename(columns={
+                "competitor_name": "Brand", "posts": "Total posts", "posts_per_week": "Posts/week",
+                engagement_col: f"Avg {engagement_label}",
+            })[["Brand", "Total posts", "Posts/week", "Most common content", f"Avg {engagement_label}"]],
+            hide_index=True, width="stretch",
+        )
+        st.markdown("**Zoom in on a brand:**")
+        zoom_in_buttons(sub["competitor_name"].unique().tolist(), key_prefix=f"cat_{category}_{platform_key}")
+
+    channel = st.radio(
+        "Channel", ["Instagram", "TikTok", "YouTube", "X", "Ads", "Google Ads", "Website"],
+        horizontal=True, key="nav_category_channel",
+    )
+    st.divider()
+
+    if channel == "Instagram":
+        _channel_table(posts, "posted_at", "category", "like_count", "likes", "Instagram")
+    elif channel == "TikTok":
+        _channel_table(tiktok, "posted_at", "category", "view_count", "views", "TikTok")
+    elif channel == "YouTube":
+        _channel_table(youtube, "posted_at", "category", "view_count", "views", "YouTube")
+    elif channel == "X":
+        _channel_table(x_posts, "posted_at", "category", "like_count", "likes", "X")
+    elif channel == "Ads":
+        sub = ads[ads["competitor_name"].isin(brand_names)]
+        if sub.empty:
+            empty_note("No Facebook/Instagram ads tracked for brands in this category.")
+        else:
+            summary = sub.groupby("competitor_name").agg(
+                active_ads=("is_active", "sum"), total_ads=("id", "count"),
+                avg_days_running=("running_days", "mean"),
+            ).reset_index().sort_values("active_ads", ascending=False)
+            top_theme = (sub.dropna(subset=["category"]).groupby("competitor_name")["category"]
+                         .agg(lambda s: s.value_counts().idxmax() if len(s) else "—")
+                         .reset_index(name="Most common theme"))
+            summary = summary.merge(top_theme, on="competitor_name", how="left")
+            styled_bar(summary[["competitor_name", "active_ads"]], "active_ads", "competitor_name",
+                       PLATFORM["Ads"]["color"], "Currently running ads")
+            st.dataframe(
+                summary.rename(columns={"competitor_name": "Brand", "active_ads": "Active ads",
+                                         "total_ads": "Total tracked", "avg_days_running": "Avg days running"}),
+                hide_index=True, width="stretch",
+            )
+            zoom_in_buttons(sub["competitor_name"].unique().tolist(), key_prefix=f"cat_{category}_ads")
+    elif channel == "Google Ads":
+        sub = google_ads[google_ads["competitor_name"].isin(brand_names) & google_ads["is_own_ad"]]
+        if sub.empty:
+            empty_note("No Google Search ads tracked for brands in this category.")
+        else:
+            summary = sub.groupby("competitor_name").agg(
+                active_ads=("is_active", "sum"), total_ads=("id", "count"),
+            ).reset_index().sort_values("active_ads", ascending=False)
+            styled_bar(summary[["competitor_name", "active_ads"]], "active_ads", "competitor_name",
+                       PLATFORM["Google Ads"]["color"], "Currently running ads")
+            st.dataframe(summary.rename(columns={"competitor_name": "Brand", "active_ads": "Active ads",
+                                                  "total_ads": "Total tracked"}),
+                         hide_index=True, width="stretch")
+            zoom_in_buttons(sub["competitor_name"].unique().tolist(), key_prefix=f"cat_{category}_gads")
+    else:  # Website
+        sub = homepages[homepages["competitor_name"].isin(brand_names)]
+        if sub.empty:
+            empty_note("No homepage tracking data for brands in this category.")
+        else:
+            latest = sub.sort_values("captured_at").groupby("competitor_name").tail(1)
+            changes = sub.groupby("competitor_name")["changed"].sum().reset_index(name="Times changed")
+            summary = latest[["competitor_name", "theme"]].merge(changes, on="competitor_name")
+            summary.columns = ["Brand", "Current theme", "Times changed"]
+            st.dataframe(summary, hide_index=True, width="stretch")
+            zoom_in_buttons(sub["competitor_name"].unique().tolist(), key_prefix=f"cat_{category}_web")
+
+# ============================================================================================
+# CATEGORY ROLLUP — every category's marketing approach vs. your family of brands
+# ============================================================================================
+elif page == "Category Rollup":
+    groups_meta = load_competitor_groups().merge(
+        competitor_meta[["id", "name"]], left_on="competitor_id", right_on="id"
+    )
+    categories = sorted(g for g in groups_meta["group_name"].unique() if g != "Our Brands")
+    own_brand_names = sorted(competitor_meta.loc[competitor_meta["is_own_brand"], "name"])
+
+    compare_choice = st.sidebar.selectbox("Compare against", ["My Brands (family average)"] + own_brand_names)
+    reference_names = own_brand_names if compare_choice == "My Brands (family average)" else [compare_choice]
+    reference_label = compare_choice
+
+    st.header("🗂️ How each category markets, vs. " + reference_label)
+
+    def _names_in(cat: str) -> list:
+        return groups_meta.loc[groups_meta["group_name"] == cat, "name"].tolist()
+
+    # ---- Posting cadence (Instagram) ----
+    st.subheader("Posting frequency (Instagram)")
+    rows = []
+    for cat in categories:
+        names = _names_in(cat)
+        sub = posts[posts["competitor_name"].isin(names)]
+        if sub.empty:
+            continue
+        weeks = max(sub["week"].nunique(), 1)
+        rows.append({"group": cat, "posts_per_week": len(sub) / weeks / max(len(names), 1)})
+    ref_sub = posts[posts["competitor_name"].isin(reference_names)]
+    if not ref_sub.empty:
+        ref_weeks = max(ref_sub["week"].nunique(), 1)
+        rows.append({"group": reference_label,
+                     "posts_per_week": len(ref_sub) / ref_weeks / max(len(reference_names), 1)})
+    cadence_df = pd.DataFrame(rows)
+    if not cadence_df.empty:
+        cadence_df["is_reference"] = cadence_df["group"] == reference_label
+        fig = px.bar(cadence_df.sort_values("posts_per_week"), x="posts_per_week", y="group", orientation="h",
+                     color="is_reference", color_discrete_map={True: PLATFORM["Instagram"]["color"], False: EMPHASIS_GRAY})
+        fig.update_layout(showlegend=False, plot_bgcolor=SURFACE, paper_bgcolor=SURFACE, font_color=INK_SECONDARY,
+                           xaxis=dict(gridcolor=GRIDLINE, zeroline=False),
+                           yaxis={"title": "", "categoryorder": "total ascending"})
+        st.plotly_chart(fig, width="stretch")
+
+    # ---- Marketing funnel mix, all platforms combined ----
+    st.subheader("Marketing funnel mix — See / Think / Do")
+    with st.expander("What do See / Think / Do mean for this segment?"):
+        for stage in ["See", "Think", "Do"]:
+            st.markdown(f"**{stage}** — {FUNNEL_DEFINITIONS[stage]}")
+
+    def _combined_funnel(names: list) -> pd.Series:
+        frames = []
+        for frame in (posts, tiktok, youtube, x_posts, ads, google_ads):
+            s = frame[frame["competitor_name"].isin(names)]["funnel_stage"].dropna()
+            if len(s):
+                frames.append(s)
+        if not frames:
+            return pd.Series(dtype=float)
+        return pd.concat(frames)
+
+    funnel_rows = []
+    for cat in categories:
+        stages = _combined_funnel(_names_in(cat))
+        if stages.empty:
+            continue
+        pct = stages.value_counts(normalize=True) * 100
+        for stage in ["See", "Think", "Do"]:
+            funnel_rows.append({"group": cat, "stage": stage, "pct": pct.get(stage, 0)})
+    ref_stages = _combined_funnel(reference_names)
+    if not ref_stages.empty:
+        pct = ref_stages.value_counts(normalize=True) * 100
+        for stage in ["See", "Think", "Do"]:
+            funnel_rows.append({"group": reference_label, "stage": stage, "pct": pct.get(stage, 0)})
+
+    funnel_df = pd.DataFrame(funnel_rows)
+    if not funnel_df.empty:
+        order = list(funnel_df.groupby("group")["pct"].sum().sort_values().index)
+        fig = px.bar(funnel_df, x="pct", y="group", color="stage", orientation="h", barmode="stack",
+                     category_orders={"group": order}, color_discrete_map=FUNNEL_COLORS,
+                     labels={"pct": "Share of content", "group": ""})
+        fig.update_layout(plot_bgcolor=SURFACE, paper_bgcolor=SURFACE, font_color=INK_SECONDARY,
+                           xaxis=dict(gridcolor=GRIDLINE, zeroline=False))
+        st.plotly_chart(fig, width="stretch")
+    else:
+        empty_note("No funnel-stage data classified yet.")
+
+    # ---- Engagement (Instagram likes) ----
+    st.subheader("Avg engagement (Instagram likes)")
+    eng_rows = []
+    for cat in categories:
+        sub = posts[posts["competitor_name"].isin(_names_in(cat))]
+        if not sub.empty:
+            eng_rows.append({"group": cat, "avg_likes": sub["like_count"].mean()})
+    if not ref_sub.empty:
+        eng_rows.append({"group": reference_label, "avg_likes": ref_sub["like_count"].mean()})
+    eng_df = pd.DataFrame(eng_rows)
+    if not eng_df.empty:
+        eng_df["is_reference"] = eng_df["group"] == reference_label
+        fig = px.bar(eng_df.sort_values("avg_likes"), x="avg_likes", y="group", orientation="h",
+                     color="is_reference", color_discrete_map={True: PLATFORM["Instagram"]["color"], False: EMPHASIS_GRAY},
+                     labels={"avg_likes": "Avg likes / post", "group": ""})
+        fig.update_layout(showlegend=False, plot_bgcolor=SURFACE, paper_bgcolor=SURFACE, font_color=INK_SECONDARY,
+                           xaxis=dict(gridcolor=GRIDLINE, zeroline=False))
+        st.plotly_chart(fig, width="stretch")
+
+    st.divider()
+    st.markdown("**Jump into a category:**")
+    cat_cols = st.columns(min(4, len(categories)))
+    for i, cat in enumerate(categories):
+        with cat_cols[i % len(cat_cols)]:
+            if st.button(f"📁 {cat}", key=f"rollup_to_{cat}", width="stretch"):
+                st.session_state["_pending_view"] = "Category Detail"
+                st.session_state["_pending_category"] = cat
+                st.rerun()
 
 # ============================================================================================
 # CROSS-COMPETITOR TRENDS — multi-brand comparisons (can't live on a single-brand page)
