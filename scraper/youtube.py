@@ -36,14 +36,16 @@ def _run_actor(channel_urls: list, max_results: int, max_shorts: int) -> list:
     return list(client.dataset(run["defaultDatasetId"]).iterate_items())
 
 
-def capture_youtube(run_type: str = "weekly", max_results: int = 15, max_shorts: int = 15) -> dict:
+def capture_youtube(run_type: str = "weekly", max_results: int = 15, max_shorts: int = 15,
+                     only_own_brand: bool = False) -> dict:
     conn = get_conn()
     stats = {"competitors_scraped": 0, "videos_added": 0, "videos_skipped_duplicate": 0, "errors": []}
 
+    query = "SELECT id, youtube_url FROM competitors WHERE is_active = TRUE AND youtube_url IS NOT NULL"
+    if only_own_brand:
+        query += " AND is_own_brand = TRUE"
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, youtube_url FROM competitors WHERE is_active = TRUE AND youtube_url IS NOT NULL"
-        )
+        cur.execute(query)
         competitors = cur.fetchall()
     conn.commit()
     stats["competitors_scraped"] = len(competitors)

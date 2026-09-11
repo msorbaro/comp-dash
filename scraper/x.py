@@ -27,14 +27,15 @@ def _run_actor(handles: list, max_items_per_handle: int) -> list:
     return list(client.dataset(run["defaultDatasetId"]).iterate_items())
 
 
-def capture_x(run_type: str = "weekly", max_items_per_handle: int = 20) -> dict:
+def capture_x(run_type: str = "weekly", max_items_per_handle: int = 20, only_own_brand: bool = False) -> dict:
     conn = get_conn()
     stats = {"competitors_scraped": 0, "posts_added": 0, "posts_skipped_duplicate": 0, "errors": []}
 
+    query = "SELECT id, x_handle FROM competitors WHERE is_active = TRUE AND x_handle IS NOT NULL"
+    if only_own_brand:
+        query += " AND is_own_brand = TRUE"
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, x_handle FROM competitors WHERE is_active = TRUE AND x_handle IS NOT NULL"
-        )
+        cur.execute(query)
         competitors = cur.fetchall()
     conn.commit()
     stats["competitors_scraped"] = len(competitors)

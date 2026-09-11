@@ -258,25 +258,30 @@
   instagram_handle: mavis_tires
   website_url: https://www.mavis.com
   facebook_url: https://www.facebook.com/mavistiresandbrakes
+  x_handle: mavis_tire
   groups: [Our Brands]
   is_own_brand: true
-  notes: "Merged per user confirmation — Mavis Discount Tire and Mavis Tires and Brakes share one corporate Instagram/website (@mavis_tires, mavis.com), no distinct per-banner accounts found."
+  notes: "Merged per user confirmation — Mavis Discount Tire and Mavis Tires and Brakes share one corporate Instagram/website (@mavis_tires, mavis.com), no distinct per-banner accounts found. X handle is singular 'mavis_tire', verified different from the IG handle."
 
 - name: Tire Kingdom
   instagram_handle: tirekingdomofficial
   website_url: https://www.tirekingdom.com
   facebook_url: https://www.facebook.com/tirekingdom
+  x_handle: tirekingdom
+  youtube_url: https://www.youtube.com/tirekingdom
   groups: [Our Brands]
   is_own_brand: true
-  notes: "Medium confidence — @tirekingdomofficial has only ~1,278 followers; multiple regional Tire Kingdom accounts also exist."
+  notes: "Medium confidence — @tirekingdomofficial has only ~1,278 followers; multiple regional Tire Kingdom accounts also exist. X and YouTube verified as 'tirekingdom' (no 'official' suffix, unlike Instagram) - YouTube is a legacy /tirekingdom URL, not an @handle. No official TikTok found."
 
 - name: National Tire and Battery
   instagram_handle: ntbofficial
   website_url: https://www.ntb.com
   facebook_url: https://www.facebook.com/nationaltireandbattery
+  x_handle: NTB
+  youtube_url: https://www.youtube.com/user/ntb
   groups: [Our Brands]
   is_own_brand: true
-  notes: "Medium confidence — ~794 followers, smaller than expected for a national chain."
+  notes: "Medium confidence — ~794 followers, smaller than expected for a national chain. X verified as '@NTB' (not 'ntbofficial') and YouTube as a legacy /user/ntb URL. TikTok presence unclear/unconfirmed."
 
 - name: Pep Boys
   instagram_handle: pepboysauto
@@ -309,12 +314,17 @@
   instagram_handle: tuffytireandauto
   website_url: https://www.tuffyautoservice.com
   facebook_url: https://www.facebook.com/tuffy
+  tiktok_handle: null
+  youtube_url: null
+  x_handle: null
   groups: [Our Brands]
   is_own_brand: true
-  notes: "Operates mostly through independent per-location Instagram accounts — @tuffytireandauto looked like the closest to a corporate account, low-medium confidence."
+  notes: "Operates mostly through independent per-location Instagram accounts — @tuffytireandauto looked like the closest to a corporate account, low-medium confidence. No corporate TikTok/X/YouTube found (only FB/IG/LinkedIn) - left blank rather than guessing a likely-wrong handle."
 
 - name: Town Fair Tire
   instagram_handle: town_fair_tire
   website_url: https://www.townfairtire.com
+  x_handle: TownFairTire
   groups: [Our Brands]
   is_own_brand: true
+  notes: "X verified as '@TownFairTire' (no underscores, unlike the Instagram handle). No official TikTok/YouTube found."

@@ -33,14 +33,15 @@ def _run_actor(usernames: list, results_per_page: int) -> list:
     return list(client.dataset(run["defaultDatasetId"]).iterate_items())
 
 
-def capture_tiktok(run_type: str = "weekly", results_per_page: int = 20) -> dict:
+def capture_tiktok(run_type: str = "weekly", results_per_page: int = 20, only_own_brand: bool = False) -> dict:
     conn = get_conn()
     stats = {"competitors_scraped": 0, "videos_added": 0, "videos_skipped_duplicate": 0, "errors": []}
 
+    query = "SELECT id, tiktok_handle FROM competitors WHERE is_active = TRUE AND tiktok_handle IS NOT NULL"
+    if only_own_brand:
+        query += " AND is_own_brand = TRUE"
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, tiktok_handle FROM competitors WHERE is_active = TRUE AND tiktok_handle IS NOT NULL"
-        )
+        cur.execute(query)
         competitors = cur.fetchall()
     conn.commit()
     stats["competitors_scraped"] = len(competitors)

@@ -70,10 +70,13 @@ def run():
                         # handle. Not independently verified per-company - each scraper flags
                         # any handle that returns no results, so wrong guesses surface naturally
                         # in logs/YYYY-MM-DD.md rather than failing silently.
-                        "facebook_url": comp.get("facebook_url") or f"https://www.facebook.com/{handle}",
-                        "tiktok_handle": comp.get("tiktok_handle") or handle,
-                        "youtube_url": comp.get("youtube_url") or f"https://www.youtube.com/@{handle}",
-                        "x_handle": comp.get("x_handle") or handle,
+                        # Note: `.get(key, default)` (not `.get(key) or default`) so an
+                        # explicit `null` in the yaml (meaning "no account, don't guess")
+                        # is preserved instead of falling back to the default guess.
+                        "facebook_url": comp.get("facebook_url", f"https://www.facebook.com/{handle}"),
+                        "tiktok_handle": comp.get("tiktok_handle", handle),
+                        "youtube_url": comp.get("youtube_url", f"https://www.youtube.com/@{handle}"),
+                        "x_handle": comp.get("x_handle", handle),
                         "is_own_brand": bool(comp.get("is_own_brand", False)),
                         "notes": comp.get("notes"),
                     },
