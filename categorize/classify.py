@@ -57,7 +57,11 @@ def classify_pending_posts(batch_size: int = 200) -> dict:
                     system=SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": user_content}],
                 )
-                parsed = json.loads(resp.content[0].text.strip())
+                raw_text = resp.content[0].text.strip()
+                if raw_text.startswith("```"):
+                    raw_text = raw_text.strip("`")
+                    raw_text = raw_text[raw_text.find("{"):raw_text.rfind("}") + 1]
+                parsed = json.loads(raw_text)
                 category = parsed["category"]
                 confidence = parsed.get("confidence", "medium")
                 if category not in CATEGORIES:
