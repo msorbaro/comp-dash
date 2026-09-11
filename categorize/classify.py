@@ -35,46 +35,54 @@ Reply with ONLY a JSON object: {{"category": "<one of the exact category names a
 No other text."""
 
 
-def classify_pending_posts(batch_size: int = 200) -> dict:
+def classify_pending_posts(batch_size: int = 200, commit_every: int = 25) -> dict:
+    """Classifies up to batch_size pending posts, committing every
+    `commit_every` posts so a crash/timeout partway through a large batch
+    doesn't lose already-classified work (each API call already costs money).
+    """
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     conn = get_conn()
     stats = {"classified": 0, "errors": 0}
 
-    with conn:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, caption, post_type FROM posts WHERE category IS NULL LIMIT %s",
+            (batch_size,),
+        )
+        pending = cur.fetchall()
+    conn.commit()
+
+    for post_id, caption, post_type in pending:
+        user_content = f"Post type: {post_type}\nCaption: {caption or '(no caption)'}"
+        try:
+            resp = client.messages.create(
+                model=MODEL,
+                max_tokens=100,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            raw_text = resp.content[0].text.strip()
+            if raw_text.startswith("```"):
+                raw_text = raw_text.strip("`")
+                raw_text = raw_text[raw_text.find("{"):raw_text.rfind("}") + 1]
+            parsed = json.loads(raw_text)
+            category = parsed["category"]
+            confidence = parsed.get("confidence", "medium")
+            if category not in CATEGORIES:
+                category, confidence = "Other", "low"
+        except Exception:  # noqa: BLE001 - never let one bad post kill the whole batch
+            category, confidence = "Other", "low"
+            stats["errors"] += 1
+
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, caption, post_type FROM posts WHERE category IS NULL LIMIT %s",
-                (batch_size,),
+                "UPDATE posts SET category = %s, category_confidence = %s WHERE id = %s",
+                (category, confidence, post_id),
             )
-            pending = cur.fetchall()
+        stats["classified"] += 1
 
-        for post_id, caption, post_type in pending:
-            user_content = f"Post type: {post_type}\nCaption: {caption or '(no caption)'}"
-            try:
-                resp = client.messages.create(
-                    model=MODEL,
-                    max_tokens=100,
-                    system=SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": user_content}],
-                )
-                raw_text = resp.content[0].text.strip()
-                if raw_text.startswith("```"):
-                    raw_text = raw_text.strip("`")
-                    raw_text = raw_text[raw_text.find("{"):raw_text.rfind("}") + 1]
-                parsed = json.loads(raw_text)
-                category = parsed["category"]
-                confidence = parsed.get("confidence", "medium")
-                if category not in CATEGORIES:
-                    category, confidence = "Other", "low"
-            except Exception:  # noqa: BLE001 - never let one bad post kill the whole batch
-                category, confidence = "Other", "low"
-                stats["errors"] += 1
+        if stats["classified"] % commit_every == 0:
+            conn.commit()
 
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE posts SET category = %s, category_confidence = %s WHERE id = %s",
-                    (category, confidence, post_id),
-                )
-            stats["classified"] += 1
-
+    conn.commit()
     return stats
