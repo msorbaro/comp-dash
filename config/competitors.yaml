@@ -292,9 +292,10 @@
 - name: Midas
   instagram_handle: midasofficial
   website_url: https://www.midas.com
+  facebook_url: https://www.facebook.com/Midas
   groups: [Our Brands]
   is_own_brand: true
-  notes: "Medium confidence — many independent regional/franchise Midas accounts exist; @midasofficial looked like the best national candidate."
+  notes: "Medium confidence — many independent regional/franchise Midas accounts exist; @midasofficial looked like the best national candidate. Facebook page confirmed by user as facebook.com/Midas (page ID 115936578484346) - the 'midasofficial' guess used for other platforms was wrong for Facebook specifically."
 
 - name: Brakes Plus
   instagram_handle: brakesplus
@@ -324,7 +325,8 @@
 - name: Town Fair Tire
   instagram_handle: town_fair_tire
   website_url: https://www.townfairtire.com
+  facebook_url: https://www.facebook.com/townfairtirecenters
   x_handle: TownFairTire
   groups: [Our Brands]
   is_own_brand: true
-  notes: "X verified as '@TownFairTire' (no underscores, unlike the Instagram handle). No official TikTok/YouTube found."
+  notes: "X verified as '@TownFairTire' (no underscores, unlike the Instagram handle). No official TikTok/YouTube found. Facebook page confirmed by user as facebook.com/townfairtirecenters (page ID 74357872649) - the 'town_fair_tire' guess was wrong for Facebook specifically."
