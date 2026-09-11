@@ -14,12 +14,21 @@ We're using [Apify](https://apify.com) to fetch Instagram post data because Inst
 3. Send me that token and I'll store it in a local `.env` file in this project (never committed to git — `.env` is in `.gitignore`).
 4. If the free credit runs out, add a small amount of billing credit (a card on file) — for ~40 competitor accounts scraped weekly, expect roughly **$5–$15/month** depending on the actor's exact pricing and how many posts per profile we pull. I'll confirm actual cost after the first real run so you're not guessing.
 
-## What we'll use it for
-- Actor: Apify's Instagram Post/Profile Scraper (exact actor ID confirmed at build time — there are a few maintained options, e.g. `apify/instagram-scraper` or `apify/instagram-post-scraper`; I'll pick the one with the best cost/reliability tradeoff and document the final choice here).
-- Weekly run: pull each competitor's most recent posts (capped at a reasonable number, e.g. last ~20) and Reels, diff against what's already in the database, insert only new posts.
-- Initial run: one-time backfill of the last 90 days per your instructions.
+## What we use it for — three actors, one token
+
+| Actor | Used for | Tested cost |
+|---|---|---|
+| `apify/instagram-scraper` | Post captions, likes, comments, media, per competitor | ~$0.0027/post. The 90-day, 43-account backfill cost **$4.64** one-time; weekly runs (only new posts, capped at `MAX_POSTS_PER_RUN`) cost far less. |
+| `apify/screenshot-url` ("Website Screenshot Generator") | Weekly homepage screenshot per competitor | ~$0.0023/screenshot → ~$0.10/week for all 43. Slow (browser-based, low concurrency) — expect 20-40 min for a full run of 43. |
+| `apify/facebook-ads-scraper` (official "Facebook Ads Library Scraper") | Running ads per competitor's Facebook Page | ~$0.02-0.03/page regardless of ad count (fixed overhead to resolve the page + open the Ads Library) → roughly $1-1.50 for all 43/week. |
+
+- Instagram: pulls each competitor's most recent posts (capped at `MAX_POSTS_PER_RUN` weekly, `BACKFILL_MAX_POSTS` for the initial pull) and Reels, diffs against the database, inserts only new posts.
+- Homepage: screenshots all competitor websites in one batched actor run, compares each to last week's via perceptual hash, only stores a new image + re-classifies when it actually changed.
+- Ads: pulls currently-active ads per competitor's Facebook Page (`facebook_url` in `config/competitors.yaml`, defaulted to the same slug as the Instagram handle — not independently verified per company, see the README note on this).
+
+Apify's own result storage only retains data for ~7 days on most plans, so all three pipelines download and store images/screenshots into Postgres immediately rather than linking to Apify's URLs.
 
 ## Status
-- [ ] Apify account created
-- [ ] API token provided and saved to `.env`
-- [ ] First test scrape run against 1-2 accounts to confirm actor choice and cost before running against the full list
+- [x] Apify account created
+- [x] API token provided and saved to `.env`
+- [x] Test scrapes run for all three actors — costs confirmed above

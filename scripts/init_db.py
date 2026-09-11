@@ -48,15 +48,22 @@ def run():
             for comp in competitors:
                 handle = comp["instagram_handle"].lstrip("@").lower()
                 cur.execute(
-                    """INSERT INTO competitors (name, instagram_handle, instagram_url, notes)
-                       VALUES (%(name)s, %(handle)s, %(url)s, %(notes)s)
+                    """INSERT INTO competitors (name, instagram_handle, instagram_url, website_url,
+                                                 facebook_url, notes)
+                       VALUES (%(name)s, %(handle)s, %(url)s, %(website_url)s, %(facebook_url)s, %(notes)s)
                        ON CONFLICT (instagram_handle) DO UPDATE
-                           SET name = EXCLUDED.name, notes = EXCLUDED.notes
+                           SET name = EXCLUDED.name, website_url = EXCLUDED.website_url,
+                               facebook_url = EXCLUDED.facebook_url, notes = EXCLUDED.notes
                        RETURNING id""",
                     {
                         "name": comp["name"],
                         "handle": handle,
                         "url": comp.get("instagram_url") or f"https://instagram.com/{handle}",
+                        "website_url": comp.get("website_url"),
+                        # Best-guess default: most brands use the same slug as their IG handle.
+                        # Not independently verified per-company - the ads scraper flags any
+                        # page URL that returns no results so wrong guesses surface naturally.
+                        "facebook_url": comp.get("facebook_url") or f"https://www.facebook.com/{handle}",
                         "notes": comp.get("notes"),
                     },
                 )

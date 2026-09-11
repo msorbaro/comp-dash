@@ -1,199 +1,245 @@
 # Source of truth for which Instagram accounts we track and how they're grouped.
 # Loaded by `python -m scripts.init_db` into the `competitors` / `competitor_groups` tables.
 # Built from research/instagram_handles_research.md (2026-09-11 pass).
+# website_url added 2026-09-11 for the homepage tracker — verified via search for
+# ambiguous ones, high-confidence direct knowledge for the rest; spot-check if unsure.
 #
 # Shape:
 # - name: Display name
 #   instagram_handle: handle without the @
+#   website_url: homepage URL used for the weekly screenshot tracker
 #   groups: [one or more competitive-set names from Competitors.rtf]
 #   notes: optional — flags dormancy, ambiguity, or assumptions made on your behalf
 
 - name: Walmart
   instagram_handle: walmart
+  website_url: https://www.walmart.com
   groups: [Value Leaders, Automotive Discount]
 
 - name: Target
   instagram_handle: target
+  website_url: https://www.target.com
   groups: [Value Leaders]
 
 - name: Dollar General
   instagram_handle: dollargeneral
+  website_url: https://www.dollargeneral.com
   groups: [Value Leaders]
 
 - name: TJ Maxx
   instagram_handle: tjmaxx
+  website_url: https://tjmaxx.tjx.com
   groups: [Value Leaders]
   notes: "Dormant as of research date (last post ~2 months prior) — handle/identity confirmed correct."
 
 - name: Costco
   instagram_handle: costco
+  website_url: https://www.costco.com
   groups: [Value Leaders, Automotive Discount]
 
 - name: Planet Fitness
   instagram_handle: planetfitness
+  website_url: https://www.planetfitness.com
   groups: [Value Leaders]
 
 - name: Best Buy
   instagram_handle: bestbuy
+  website_url: https://www.bestbuy.com
   groups: [Big Box Retail + Services]
 
 - name: PetSmart
   instagram_handle: petsmart
+  website_url: https://www.petsmart.com
   groups: [Big Box Retail + Services]
 
 - name: Home Depot
   instagram_handle: homedepot
+  website_url: https://www.homedepot.com
   groups: [Big Box Retail + Services]
 
 - name: Ulta Beauty
   instagram_handle: ultabeauty
+  website_url: https://www.ulta.com
   groups: [Big Box Retail + Services]
   notes: "A second handle @ulta_beauty also exists; @ultabeauty (highest followers) used as primary."
 
 - name: Staples
   instagram_handle: staples
+  website_url: https://www.staples.com
   groups: [Big Box Retail + Services]
 
 - name: Dick's Sporting Goods
   instagram_handle: dickssportinggoods
+  website_url: https://www.dickssportinggoods.com
   groups: [Big Box Retail + Services]
 
 - name: The Vitamin Shoppe
   instagram_handle: vitaminshoppe
+  website_url: https://www.vitaminshoppe.com
   groups: [Low Interest / Functional Categories]
 
 - name: Supercuts
   instagram_handle: supercuts
+  website_url: https://www.supercuts.com
   groups: [Low Interest / Functional Categories]
   notes: "Small follower count (~22K) relative to brand footprint — worth a manual glance."
 
 - name: Mattress Firm
   instagram_handle: mattressfirm
+  website_url: https://www.mattressfirm.com
   groups: [Low Interest / Functional Categories]
 
 - name: U-Haul
   instagram_handle: uhaul
+  website_url: https://www.uhaul.com
   groups: [Low Interest / Functional Categories]
   notes: "Low follower count (~23K) for company size, but handle confirmed correct/official."
 
 - name: Public Storage
   instagram_handle: publicstorage
+  website_url: https://www.publicstorage.com
   groups: [Low Interest / Functional Categories]
   notes: "ASSUMPTION: source list said generic 'Storage units' with no brand named. Defaulted to Public Storage (largest self-storage brand) — change this entry if you meant a different company (e.g. Extra Space Storage, CubeSmart)."
 
 - name: Goettl Air Conditioning and Plumbing
   instagram_handle: goettlacplumbing
+  website_url: https://www.goettl.com
   groups: [Maintenance]
   notes: "An older-looking @goettlair handle also exists; @goettlacplumbing looks like current primary."
 
 - name: Roto-Rooter
   instagram_handle: rotorooterplumbing
+  website_url: https://www.rotorooter.com
   groups: [Maintenance]
   notes: "No single obvious national flagship account found; many regional/franchise accounts also exist."
 
 - name: Service Experts
   instagram_handle: service_experts
+  website_url: https://www.serviceexperts.com
   groups: [Maintenance]
   notes: "Legitimate but small (~1,900 followers), consistent with a regional HVAC brand."
 
 - name: Mr. Appliance
   instagram_handle: mrappliance_
+  website_url: https://www.mrappliance.com
   groups: [Maintenance]
   notes: "Dormant as of research date (last post ~3 months prior). Very small following (~350)."
 
 - name: Wendy's
   instagram_handle: wendys
+  website_url: https://www.wendys.com
   groups: [Best in Class Marketing]
 
 - name: Chick-fil-A
   instagram_handle: chickfila
+  website_url: https://www.chick-fil-a.com
   groups: [Best in Class Marketing]
 
 - name: GEICO
   instagram_handle: geico
+  website_url: https://www.geico.com
   groups: [Best in Class Marketing]
   notes: "Follower count (~92K) is surprisingly low for GEICO's brand recognition — worth a sanity check."
 
 - name: Trader Joe's
   instagram_handle: traderjoes
+  website_url: https://www.traderjoes.com
   groups: [Best in Class Marketing]
   notes: "Confirmed active official account (~3.9M followers) — contrary to initial suspicion they might not run one."
 
 - name: REI
   instagram_handle: rei
+  website_url: https://www.rei.com
   groups: [Best in Class Marketing]
 
 - name: Sam's Club
   instagram_handle: samsclub
+  website_url: https://www.samsclub.com
   groups: [Automotive Discount]
 
 - name: Firestone Complete Auto Care
   instagram_handle: firestoneauto
+  website_url: https://www.firestonecompleteautocare.com
   groups: [Automotive Full Service]
   notes: "Dormant as of research date (last post ~4 months prior). Handle/identity confirmed correct."
 
 - name: Monro Auto Service and Tire Centers
   instagram_handle: monroauto
+  website_url: https://www.monro.com
   groups: [Automotive Full Service]
   notes: "ASSUMPTION: source list said 'Monroe' (listed twice, likely a copy-paste duplicate). Interpreted as Monro Auto Service and Tire Centers (a full-service repair chain fitting this category) rather than the unrelated Monroe shocks/struts parts brand. Change if you meant something else."
 
 - name: Big O Tires
   instagram_handle: bigotiresofficial
+  website_url: https://www.bigotires.com
   groups: [Automotive Full Service]
   notes: "Low follower count for a national chain; recent activity not confirmed — worth a spot check."
 
 - name: Discount Tire
   instagram_handle: discount_tire
+  website_url: https://www.discounttire.com
   groups: [Automotive Full Service]
   notes: "Note the underscore — a lookalike @discounttire (no underscore) is a small, stale account."
 
 - name: Goodyear
   instagram_handle: goodyear
+  website_url: https://www.goodyearautoservice.com
   groups: [Automotive Full Service]
-  notes: "ASSUMPTION: source said 'Goodyear Auto Service', which has no confirmed distinct Instagram account of its own (their own site links to the main @goodyear account). Tracking @goodyear as a stand-in."
+  notes: "ASSUMPTION: source said 'Goodyear Auto Service', which has no confirmed distinct Instagram account of its own (their own site links to the main @goodyear account). Tracking @goodyear as a stand-in for Instagram; the website tracker uses the actual dedicated goodyearautoservice.com site."
 
 - name: Belle Tire
   instagram_handle: belletire
+  website_url: https://www.belletire.com
   groups: [Automotive Full Service]
 
 - name: Les Schwab Tires
   instagram_handle: lesschwabtires
+  website_url: https://www.lesschwab.com
   groups: [Automotive Full Service]
 
 - name: Take 5 Oil Change
   instagram_handle: take5oilchange
+  website_url: https://www.take5.com
   groups: [Oil Brands]
 
 - name: Jiffy Lube
   instagram_handle: jiffylubeintl
+  website_url: https://www.jiffylube.com
   groups: [Oil Brands]
   notes: "Dormant as of research date (last post ~4 months prior). Verified official account despite 'intl' in handle."
 
 - name: Valvoline Instant Oil Change
   instagram_handle: valvolineinstantoilchange
+  website_url: https://www.vioc.com
   groups: [Oil Brands]
 
 - name: Mister Car Wash
   instagram_handle: mistercarwashhq
+  website_url: https://www.mistercarwash.com
   groups: [Car Washes]
 
 - name: Quick Quack Car Wash
   instagram_handle: quickquack
+  website_url: https://www.quickquack.com
   groups: [Car Washes]
 
 - name: Tidal Wave Auto Spa
   instagram_handle: tidalwaveautospa
+  website_url: https://www.tidalwaveautospa.com
   groups: [Car Washes]
 
 - name: Tire Rack
   instagram_handle: tirerack
+  website_url: https://www.tirerack.com
   groups: [Online Tires]
 
 - name: Amazon
   instagram_handle: amazon
+  website_url: https://www.amazon.com
   groups: [Online Tires]
   notes: "Amazon's general corporate account — no tire-specific Amazon Instagram exists."
 
 - name: Simple Tire
   instagram_handle: simple_tire
+  website_url: https://simpletire.com
   groups: [Online Tires]

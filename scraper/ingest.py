@@ -7,50 +7,65 @@ import os
 
 from db.connection import get_conn
 from scraper.apify_client import fetch_posts, normalize_post
+from scraper.media import fetch_thumbnail
 
 
-def _insert_posts(conn, raw_items: list, run_type: str, by_handle: dict, backfill_days: int) -> dict:
-    """Normalizes + inserts raw Apify items already in hand. Split out from
-    ingest_new_posts so a completed Apify run's dataset can be re-applied to
-    the DB without paying for another scrape (see recover_run in this module).
+def _insert_posts(conn, raw_items: list, run_type: str, by_handle: dict, backfill_days: int,
+                   commit_every: int = 25) -> dict:
+    """Normalizes + inserts raw Apify items already in hand, downloading each
+    post's thumbnail while its signed Instagram URL is still fresh. Split out
+    from ingest_new_posts so a completed Apify run's dataset can be re-applied
+    to the DB without paying for another scrape (see recover_run below).
+
+    Commits every `commit_every` posts so a crash partway through a large
+    batch (each thumbnail download + API call already has real cost/time
+    sunk into it) doesn't lose everything already processed.
     """
     stats = {"posts_added": 0, "posts_skipped_duplicate": 0}
     cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=backfill_days)
 
-    with conn.cursor() as cur:
-        for raw in raw_items:
-            post = normalize_post(raw)
-            if not post:
+    for raw in raw_items:
+        post = normalize_post(raw)
+        if not post:
+            continue
+
+        match = by_handle.get(post["owner_username"])
+        if not match:
+            continue  # post from an account not in our competitor list (shouldn't happen)
+        competitor_id, _ = match
+
+        posted_at = post["posted_at"]
+        if run_type == "backfill" and posted_at:
+            posted_dt = dt.datetime.fromisoformat(posted_at.replace("Z", "+00:00"))
+            if posted_dt < cutoff:
                 continue
 
-            match = by_handle.get(post["owner_username"])
-            if not match:
-                continue  # post from an account not in our competitor list (shouldn't happen)
-            competitor_id, _ = match
+        thumbnail = fetch_thumbnail(post["media_url"])
 
-            posted_at = post["posted_at"]
-            if run_type == "backfill" and posted_at:
-                posted_dt = dt.datetime.fromisoformat(posted_at.replace("Z", "+00:00"))
-                if posted_dt < cutoff:
-                    continue
-
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO posts (competitor_id, instagram_post_id, post_url, post_type,
-                                    posted_at, caption, media_url, like_count, comment_count,
-                                    view_count)
+                                    posted_at, caption, media_url, thumbnail, like_count,
+                                    comment_count, view_count)
                 VALUES (%(competitor_id)s, %(instagram_post_id)s, %(post_url)s, %(post_type)s,
-                        %(posted_at)s, %(caption)s, %(media_url)s, %(like_count)s,
+                        %(posted_at)s, %(caption)s, %(media_url)s, %(thumbnail)s, %(like_count)s,
                         %(comment_count)s, %(view_count)s)
                 ON CONFLICT (instagram_post_id) DO NOTHING
                 """,
-                {**post, "competitor_id": competitor_id},
+                {**post, "competitor_id": competitor_id, "thumbnail": thumbnail},
             )
-            if cur.rowcount == 0:
-                stats["posts_skipped_duplicate"] += 1
-            else:
-                stats["posts_added"] += 1
+            added = cur.rowcount > 0
 
+        if added:
+            stats["posts_added"] += 1
+        else:
+            stats["posts_skipped_duplicate"] += 1
+
+        if (stats["posts_added"] + stats["posts_skipped_duplicate"]) % commit_every == 0:
+            conn.commit()
+
+    conn.commit()
     return stats
 
 
@@ -91,6 +106,7 @@ def ingest_new_posts(run_type: str = "weekly") -> dict:
     with conn:
         competitors, by_handle = _get_active_competitors(conn)
         profile_urls = [url for _, _, url in competitors]
+        conn.commit()  # release the read lock before the (potentially long) external actor call
 
         try:
             raw_items = fetch_posts(profile_urls, results_limit)
@@ -104,6 +120,34 @@ def ingest_new_posts(run_type: str = "weekly") -> dict:
     stats["competitors_scraped"] = len(competitors)
     stats["errors"] = errors
     stats["status"] = status
+    return stats
+
+
+def backfill_thumbnails(commit_every: int = 25) -> dict:
+    """One-off/rerunnable: fetches thumbnails for existing posts that don't
+    have one yet (e.g. posts inserted before the `thumbnail` column existed).
+    Uses each post's already-stored `media_url` - only works while that
+    signed URL is still valid, so run this soon after the posts were scraped.
+    """
+    conn = get_conn()
+    stats = {"fetched": 0, "failed": 0}
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, media_url FROM posts WHERE thumbnail IS NULL AND media_url IS NOT NULL")
+        pending = cur.fetchall()
+
+    for post_id, media_url in pending:
+        thumbnail = fetch_thumbnail(media_url)
+        with conn.cursor() as cur:
+            cur.execute("UPDATE posts SET thumbnail = %s WHERE id = %s", (thumbnail, post_id))
+        if thumbnail:
+            stats["fetched"] += 1
+        else:
+            stats["failed"] += 1
+        if (stats["fetched"] + stats["failed"]) % commit_every == 0:
+            conn.commit()
+
+    conn.commit()
     return stats
 
 

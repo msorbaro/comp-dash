@@ -10,6 +10,8 @@ from pathlib import Path
 # project root (containing the `db` package) needs to be added explicitly.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import base64
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -39,10 +41,16 @@ CATEGORY_COLORS = {
 
 @st.cache_data(ttl=600)
 def load_posts() -> pd.DataFrame:
+    # Deliberately excludes the `thumbnail` bytea column - it's fetched
+    # separately, only for the handful of posts actually displayed at once,
+    # so the cached working dataframe used for every chart stays small.
     conn = get_conn()
     df = pd.read_sql(
         """
-        SELECT p.*, c.name AS competitor_name, c.instagram_handle,
+        SELECT p.id, p.competitor_id, p.instagram_post_id, p.post_url, p.post_type,
+               p.posted_at, p.caption, p.media_url, p.like_count, p.comment_count,
+               p.view_count, p.category, p.category_confidence, p.scraped_at,
+               c.name AS competitor_name, c.instagram_handle,
                array_agg(cg.group_name) AS groups
         FROM posts p
         JOIN competitors c ON c.id = p.competitor_id
@@ -57,10 +65,112 @@ def load_posts() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=600)
+def load_thumbnails(post_ids: tuple) -> dict:
+    if not post_ids:
+        return {}
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, thumbnail FROM posts WHERE id = ANY(%s)", (list(post_ids),))
+        rows = cur.fetchall()
+    return {
+        post_id: f"data:image/jpeg;base64,{base64.b64encode(thumb).decode()}"
+        for post_id, thumb in rows if thumb
+    }
+
+
+def with_thumbnails(top: pd.DataFrame) -> pd.DataFrame:
+    thumbs = load_thumbnails(tuple(top["id"].tolist()))
+    top = top.copy()
+    top.insert(0, "image", top["id"].map(thumbs))
+    return top
+
+
+@st.cache_data(ttl=600)
 def load_last_run():
     conn = get_conn()
     df = pd.read_sql("SELECT * FROM scrape_runs ORDER BY run_date DESC LIMIT 1", conn)
     return df.iloc[0] if not df.empty else None
+
+
+@st.cache_data(ttl=600)
+def load_homepage_snapshots() -> pd.DataFrame:
+    conn = get_conn()
+    df = pd.read_sql(
+        """
+        SELECT h.id, h.competitor_id, h.captured_at, h.changed, h.theme, h.theme_confidence,
+               c.name AS competitor_name
+        FROM homepage_snapshots h
+        JOIN competitors c ON c.id = h.competitor_id
+        ORDER BY h.competitor_id, h.captured_at
+        """,
+        conn,
+    )
+    df["captured_at"] = pd.to_datetime(df["captured_at"])
+    return df
+
+
+@st.cache_data(ttl=600)
+def load_screenshot(snapshot_id: int):
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT screenshot FROM homepage_snapshots WHERE id = %s", (snapshot_id,))
+        row = cur.fetchone()
+    if row and row[0]:
+        return f"data:image/jpeg;base64,{base64.b64encode(row[0]).decode()}"
+    return None
+
+
+@st.cache_data(ttl=600)
+def load_ads() -> pd.DataFrame:
+    conn = get_conn()
+    df = pd.read_sql(
+        """
+        SELECT a.id, a.competitor_id, a.ad_url, a.creative_type, a.caption, a.headline,
+               a.platforms, a.start_date, a.end_date, a.is_active, a.category,
+               c.name AS competitor_name
+        FROM ads a
+        JOIN competitors c ON c.id = a.competitor_id
+        ORDER BY a.start_date DESC
+        """,
+        conn,
+    )
+    df["start_date"] = pd.to_datetime(df["start_date"])
+    df["end_date"] = pd.to_datetime(df["end_date"])
+    today = pd.Timestamp.now(tz=df["start_date"].dt.tz) if len(df) and df["start_date"].dt.tz else pd.Timestamp.now()
+    df["running_days"] = ((df["end_date"].fillna(today) - df["start_date"]).dt.days).clip(lower=0)
+    return df
+
+
+@st.cache_data(ttl=600)
+def load_ad_creative(ad_id: int):
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT creative FROM ads WHERE id = %s", (ad_id,))
+        row = cur.fetchone()
+    if row and row[0]:
+        return f"data:image/jpeg;base64,{base64.b64encode(row[0]).decode()}"
+    return None
+
+
+def with_ad_creatives(ads_df: pd.DataFrame) -> pd.DataFrame:
+    ads_df = ads_df.copy()
+    ads_df.insert(0, "image", ads_df["id"].map(load_ad_creative))
+    return ads_df
+
+
+def build_timeline(snapshots: pd.DataFrame) -> list:
+    """Collapses consecutive unchanged rows into single segments: each
+    segment is (snapshot_id_with_image, start_date, end_date, theme)."""
+    segments = []
+    for _, row in snapshots.sort_values("captured_at").iterrows():
+        if row["changed"] or not segments:
+            segments.append({
+                "snapshot_id": row["id"], "start": row["captured_at"],
+                "end": row["captured_at"], "theme": row["theme"],
+            })
+        else:
+            segments[-1]["end"] = row["captured_at"]
+    return list(reversed(segments))
 
 
 posts = load_posts()
@@ -81,7 +191,10 @@ if posts.empty:
     st.stop()
 
 all_groups = sorted({g for row in posts["groups"] for g in (row or []) if g})
-page = st.sidebar.radio("View", ["Cross-competitor summary", "Competitor detail"])
+page = st.sidebar.radio(
+    "View",
+    ["Cross-competitor summary", "Competitor detail", "Website tracker", "Ads library"],
+)
 
 # ---------------------------------------------------------------- SUMMARY --
 if page == "Cross-competitor summary":
@@ -129,14 +242,19 @@ if page == "Cross-competitor summary":
         st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Top posts across selected competitors")
-    top = df.sort_values("like_count", ascending=False).head(20)
+    top = with_thumbnails(df.sort_values("like_count", ascending=False).head(20))
     st.dataframe(
-        top[["competitor_name", "posted_at", "category", "like_count", "comment_count", "caption", "post_url"]],
+        top[["image", "competitor_name", "posted_at", "category", "like_count", "comment_count", "caption", "post_url"]],
+        column_config={
+            "image": st.column_config.ImageColumn("Post"),
+            "post_url": st.column_config.LinkColumn("Link", display_text="Open"),
+        },
+        hide_index=True,
         use_container_width=True,
     )
 
 # --------------------------------------------------------- COMPETITOR DETAIL --
-else:
+elif page == "Competitor detail":
     competitor = st.sidebar.selectbox("Competitor", sorted(posts["competitor_name"].unique()))
     df = posts[posts["competitor_name"] == competitor]
 
@@ -170,8 +288,111 @@ else:
     st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Top posts by likes")
-    top = df.sort_values("like_count", ascending=False).head(10)
+    top = with_thumbnails(df.sort_values("like_count", ascending=False).head(10))
     st.dataframe(
-        top[["posted_at", "post_type", "category", "like_count", "comment_count", "caption", "post_url"]],
+        top[["image", "posted_at", "post_type", "category", "like_count", "comment_count", "caption", "post_url"]],
+        column_config={
+            "image": st.column_config.ImageColumn("Post"),
+            "post_url": st.column_config.LinkColumn("Link", display_text="Open"),
+        },
+        hide_index=True,
+        use_container_width=True,
+    )
+
+# ------------------------------------------------------------- WEBSITE TRACKER --
+elif page == "Website tracker":
+    homepages = load_homepage_snapshots()
+    if homepages.empty:
+        st.info("No homepage snapshots yet. Run `python -m scripts.run_weekly --backfill` "
+                "(or the homepage capture step) first.")
+        st.stop()
+
+    st.subheader("Current homepage theme by competitor")
+    latest = homepages.sort_values("captured_at").groupby("competitor_name").tail(1)
+    theme_counts = latest["theme"].value_counts().reset_index()
+    theme_counts.columns = ["theme", "competitors"]
+    fig = px.bar(theme_counts, x="competitors", y="theme", orientation="h",
+                 labels={"competitors": "# of competitors", "theme": ""})
+    fig.update_layout(yaxis={"categoryorder": "total ascending"})
+    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(
+        latest[["competitor_name", "theme", "captured_at"]].sort_values("competitor_name"),
+        hide_index=True, use_container_width=True,
+    )
+
+    st.divider()
+    st.subheader("Homepage change timeline")
+    competitor = st.selectbox("Competitor", sorted(homepages["competitor_name"].unique()))
+    timeline = build_timeline(homepages[homepages["competitor_name"] == competitor])
+
+    for i, seg in enumerate(timeline):
+        img = load_screenshot(seg["snapshot_id"])
+        col_img, col_info = st.columns([1, 3])
+        with col_img:
+            if img:
+                st.image(img, use_container_width=True)
+            else:
+                st.write("(no image stored)")
+        with col_info:
+            label = "Current" if i == 0 else "Changed to this"
+            date_range = (
+                f"{seg['start']:%Y-%m-%d}" if seg["start"] == seg["end"]
+                else f"{seg['start']:%Y-%m-%d} → {seg['end']:%Y-%m-%d} (unchanged)"
+            )
+            st.markdown(f"**{label}** — {date_range}")
+            st.markdown(f"Theme: **{seg['theme'] or 'Not classified'}**")
+        st.divider()
+
+# ------------------------------------------------------------------ ADS LIBRARY --
+else:
+    ads = load_ads()
+    if ads.empty:
+        st.info("No ads captured yet. Run the ads capture step "
+                "(`python -c \"from scraper.ads import capture_ads; capture_ads()\"`) first.")
+        st.stop()
+
+    only_active = st.checkbox("Currently running only", value=True)
+    view = ads[ads["is_active"]] if only_active else ads
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Ads tracked", len(view))
+    col2.metric("Competitors with active ads", view.loc[view["is_active"], "competitor_name"].nunique())
+    col3.metric("Avg days running", f"{view['running_days'].mean():.0f}" if len(view) else "—")
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.subheader("What are competitors' ads trying to say?")
+        mix = view["category"].value_counts().reset_index()
+        mix.columns = ["theme", "count"]
+        fig = px.bar(mix, x="count", y="theme", orientation="h", labels={"count": "# of ads", "theme": ""})
+        fig.update_layout(yaxis={"categoryorder": "total ascending"})
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col_b:
+        st.subheader("Where are these ads running?")
+        platform_counts = view.explode("platforms")["platforms"].value_counts().reset_index()
+        platform_counts.columns = ["platform", "count"]
+        fig = px.bar(platform_counts, x="count", y="platform", orientation="h",
+                     labels={"count": "# of ads", "platform": ""})
+        fig.update_layout(yaxis={"categoryorder": "total ascending"})
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+    st.subheader("Ad creatives")
+    competitor_filter = st.selectbox("Competitor", ["All"] + sorted(ads["competitor_name"].unique()))
+    table = view if competitor_filter == "All" else view[view["competitor_name"] == competitor_filter]
+    table = with_ad_creatives(table.sort_values("start_date", ascending=False).head(50))
+    table["status"] = table.apply(
+        lambda r: "Running" if r["is_active"] else f"Ended {r['end_date']:%Y-%m-%d}", axis=1
+    )
+    st.dataframe(
+        table[["image", "competitor_name", "creative_type", "category", "headline", "caption",
+               "platforms", "start_date", "running_days", "status", "ad_url"]],
+        column_config={
+            "image": st.column_config.ImageColumn("Creative"),
+            "ad_url": st.column_config.LinkColumn("Link", display_text="Open"),
+            "running_days": st.column_config.NumberColumn("Days running"),
+        },
+        hide_index=True,
         use_container_width=True,
     )

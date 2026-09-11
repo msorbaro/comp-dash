@@ -6,7 +6,10 @@ last_updated: 2026-09-11
 
 # Competitor Research Dashboard
 
-Tracks Instagram activity for ~40 competitors (grouped into 10 competitive sets, see `Competitors.rtf` for the original source) so we can compare content strategy, posting cadence, and engagement — without re-scraping Instagram every time someone opens the dashboard.
+Tracks three things for ~43 competitors (grouped into 10 competitive sets, see `Competitors.rtf` for the original source), all stored in a database so the dashboard never has to re-scrape live:
+1. **Instagram activity** — posts, captions, likes, content category, cadence.
+2. **Website homepage tracker** — weekly screenshot per competitor, visual change detection (only stores a new image when the homepage actually changed), and a messaging-theme classification (deals vs. product vs. lifestyle, etc.).
+3. **Facebook/Instagram Ads Library** — currently-running (and recently run) ads per competitor: creative, caption, headline, platforms, how long each has been running, and the same messaging-theme classification.
 
 ## Decisions made (confirmed with the user)
 
@@ -19,6 +22,13 @@ Tracks Instagram activity for ~40 competitors (grouped into 10 competitive sets,
 | Dashboard tech | **Streamlit (Python)** | One-command local launch now; the exact same code deploys later to Streamlit Community Cloud (or similar) once the user is ready to go live — just point it at the same hosted DB. |
 | Repo | **GitHub, private** — `github.com/msorbaro/competitor-ig-dashboard` | Contains competitive business data; private by default. User has a GitHub account (`msorbaro`). |
 | Stories | **Out of scope** | Ephemeral, not accessible for accounts we don't manage — only feed posts + Reels are tracked. |
+| Homepage screenshot cadence | **Weekly**, same run as Instagram | User initially said "each day" then "each week" in the same message; confirmed weekly — ~7x cheaper and homepages rarely change daily. |
+| Homepage screenshot actor | **Apify `apify/screenshot-url`** ("Website Screenshot Generator") | ~$0.0023/screenshot tested live — negligible cost (~$0.10/week for all 43). |
+| Homepage change detection | **Always capture, then compare perceptual hash (average_hash, threshold 4) to the last stored one** | Only stores a new image + re-classifies theme when the homepage actually visually changed; unchanged weeks just log a "still the same" row pointing at the last real image. Avoids storage bloat and repeat classification cost. |
+| Homepage/ad image storage | **Postgres BYTEA** (resized JPEG), not a separate object store | Avoids needing a 4th external service/credential; volume is small enough (~1000s of images) that this is simpler than wiring up Supabase Storage or S3. Apify's own screenshot storage only retains results ~7 days, so images are downloaded and stored permanently right after each capture. |
+| Ads Library actor | **Apify `apify/facebook-ads-scraper`** (official, ~36k users), input = each competitor's Facebook Page URL | Verified live against Walmart's page — returns full ad creative, caption, platforms, dates, active status. |
+| Facebook Page URLs | **Best-guess default**: `facebook.com/<same slug as Instagram handle>` | Not independently researched per-company (that would've meant a second full research pass) — most brands do use the same slug, and wrong guesses will simply return no ads, which surfaces naturally as a "0 ads found" competitor to spot-check rather than silently failing. |
+| Ad/homepage messaging taxonomy | **Shared taxonomy** (`categorize/messaging_taxonomy.py`): Deals/Promotional, Product-Led, Lifestyle/Brand Imagery, Seasonal/Holiday, Announcement/Launch, Testimonial/Social Proof, Recruitment/Hiring, Mixed/Other | Same underlying question ("what is this trying to sell") for both homepages and ads, so one shared taxonomy keeps the dashboard's language consistent. Classified via Claude vision (Haiku) on the actual image. |
 
 ## Open items / assumptions needing user confirmation
 
