@@ -1,11 +1,16 @@
 # Competitor Research Dashboard
 
-Tracks three things for ~43 competitors, auto-refreshed weekly, all in a database and
-viewed through a local Streamlit dashboard (it never re-scrapes live):
+Tracks six things for ~43 competitors plus 9 of your own brands, auto-refreshed weekly,
+all in a database and viewed through a local Streamlit dashboard (it never re-scrapes live):
 - **Instagram** — posts, captions, likes, content category, cadence.
 - **Website homepage tracker** — weekly screenshot, change detection, messaging theme.
 - **Facebook/Instagram Ads Library** — running ads, creative, caption, platforms, how
   long each has run, messaging theme.
+- **TikTok** — videos, caption, category, views/likes/comments/shares.
+- **YouTube** — videos & Shorts, title/description, category, views/likes/comments.
+- **X (Twitter)** — posts, text, category, likes/retweets/replies/quotes/views.
+
+A **Scope** filter (All / My brands only / Competitors only) is available throughout.
 
 See `PROJECT_PLAN.md` for the full decisions log and `docs/` for schema/taxonomy/setup details.
 
@@ -33,11 +38,13 @@ git push -u origin main
    copy the connection string, then swap in your real password.
 3. This becomes `DATABASE_URL`.
 
-### 3. Apify (Instagram, homepage screenshots, ads library)
+### 3. Apify (Instagram, homepage screenshots, ads library, TikTok, YouTube, X)
 1. apify.com → sign up.
 2. Console → Settings → Integrations → copy your **Personal API token** → this is `APIFY_TOKEN`.
-3. See `docs/apify_setup.md` for cost expectations. Three actors are used: `apify/instagram-scraper`,
-   `apify/screenshot-url`, and `apify/facebook-ads-scraper` — all pay-as-you-go on the same token.
+3. See `docs/apify_setup.md` for cost expectations. Six actors are used, all pay-as-you-go
+   on the same token: `apify/instagram-scraper`, `apify/screenshot-url`,
+   `apify/facebook-ads-scraper`, `clockworks/tiktok-scraper`, `streamers/youtube-scraper`,
+   and `apidojo/tweet-scraper`.
 
 ### 4. Anthropic API key (post categorization)
 1. console.anthropic.com → API Keys → create a key → this is `ANTHROPIC_API_KEY`.
@@ -77,13 +84,13 @@ trigger it manually any time from the repo's **Actions** tab ("Run workflow"), o
 To see this week's new data in the dashboard, just click **Refresh from database** in
 the app (or restart it) — it always reads from Supabase, never re-scrapes on its own.
 
-### Note on Facebook Page URLs
-`config/competitors.yaml` doesn't hardcode a `facebook_url` for most competitors — it
-defaults to `facebook.com/<same slug as the Instagram handle>`, which is right for most
-brands but not guaranteed. If a competitor shows 0 ads in the dashboard, check the most
-recent `logs/YYYY-MM-DD.md` for an error on that competitor, find their real Facebook
-Page URL, and add an explicit `facebook_url:` line for them in `config/competitors.yaml`,
-then re-run `python -m scripts.init_db`.
+### Note on Facebook/TikTok/YouTube/X handles
+`config/competitors.yaml` doesn't hardcode a `facebook_url`, `tiktok_handle`, `youtube_url`,
+or `x_handle` for most competitors — each defaults to the same slug as the Instagram handle
+(or `youtube.com/@<handle>`), which is right for most brands but not guaranteed. If a
+competitor shows 0 results on a given platform, check the most recent `logs/YYYY-MM-DD.md`
+for an error on that competitor, find their real handle/URL, and add an explicit line for
+them in `config/competitors.yaml`, then re-run `python -m scripts.init_db`.
 
 ## Going live later
 The dashboard code doesn't need to change to be deployed publicly — e.g. push this repo

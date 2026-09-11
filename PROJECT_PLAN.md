@@ -6,10 +6,13 @@ last_updated: 2026-09-11
 
 # Competitor Research Dashboard
 
-Tracks three things for ~43 competitors (grouped into 10 competitive sets, see `Competitors.rtf` for the original source) **plus 9 of the user's own brands** (Mavis, Tire Kingdom, NTB, Pep Boys, Midas, Brakes Plus, Express Oil, Tuffy, Town Fair Tire — tagged `is_own_brand`, tracked identically but distinguishable in the dashboard), all stored in a database so the dashboard never has to re-scrape live:
+Tracks six things for ~43 competitors (grouped into 10 competitive sets, see `Competitors.rtf` for the original source) **plus 9 of the user's own brands** (Mavis, Tire Kingdom, NTB, Pep Boys, Midas, Brakes Plus, Express Oil, Tuffy, Town Fair Tire — tagged `is_own_brand`, tracked identically but distinguishable in the dashboard), all stored in a database so the dashboard never has to re-scrape live:
 1. **Instagram activity** — posts, captions, likes, content category, cadence.
 2. **Website homepage tracker** — weekly screenshot per competitor, visual change detection (only stores a new image when the homepage actually changed), and a messaging-theme classification (deals vs. product vs. lifestyle, etc.).
 3. **Facebook/Instagram Ads Library** — currently-running (and recently run) ads per competitor: creative, caption, headline, platforms, how long each has been running, and the same messaging-theme classification.
+4. **TikTok videos** — caption, category, view/like/comment/share counts, duration, link.
+5. **YouTube videos & Shorts** — title, description, category, view/like/comment counts, duration, link.
+6. **X (Twitter) posts** — text, category, likes/retweets/replies/quotes/views, link.
 
 The dashboard has a global **Scope** filter (All / My brands only / Competitors only) and, when viewing "All", a "Us vs. competitors" benchmark comparison (avg engagement, content mix) on the summary page.
 
@@ -31,6 +34,11 @@ The dashboard has a global **Scope** filter (All / My brands only / Competitors 
 | Ads Library actor | **Apify `apify/facebook-ads-scraper`** (official, ~36k users), input = each competitor's Facebook Page URL | Verified live against Walmart's page — returns full ad creative, caption, platforms, dates, active status. |
 | Facebook Page URLs | **Best-guess default**: `facebook.com/<same slug as Instagram handle>` | Not independently researched per-company (that would've meant a second full research pass) — most brands do use the same slug, and wrong guesses will simply return no ads, which surfaces naturally as a "0 ads found" competitor to spot-check rather than silently failing. |
 | Ad/homepage messaging taxonomy | **Shared taxonomy** (`categorize/messaging_taxonomy.py`): Deals/Promotional, Product-Led, Lifestyle/Brand Imagery, Seasonal/Holiday, Announcement/Launch, Testimonial/Social Proof, Recruitment/Hiring, Mixed/Other | Same underlying question ("what is this trying to sell") for both homepages and ads, so one shared taxonomy keeps the dashboard's language consistent. Classified via Claude vision (Haiku) on the actual image. |
+| TikTok actor | **Apify `clockworks/tiktok-scraper`** (277k users, by far the most popular) | ~$0.016 for 5 videos tested live against Walmart. |
+| YouTube actor | **Apify `streamers/youtube-scraper`** (the detailed per-video variant, not the faster `youtube-channel-scraper`) | The fast channel-listing variant doesn't return likes/comments/full description — only the detailed variant does. ~$0.009 for 3 fully-detailed videos, but noticeably slower (~9s/video) than the other actors. |
+| X/Twitter actor | **Apify `apidojo/tweet-scraper`** (99.5k users, "Tweet Scraper V2") | ~$0.002 for 5 tweets tested live; fast and cheap. |
+| TikTok/YouTube/X content category | **Reuses the Instagram content taxonomy** (`docs/content_taxonomy.md`, via the new shared `classify_caption()` helper) | Same underlying question as Instagram post categorization — keeps cross-platform comparison meaningful instead of inventing a fourth taxonomy. |
+| TikTok/YouTube/X handles | **Best-guess default**: same slug as the Instagram handle (TikTok, X) or `youtube.com/@<handle>` | Same pattern as `facebook_url` — not independently researched per-company for all 52 brands (that would mean 150+ more handle lookups); wrong guesses return 0 results, which surfaces in `logs/YYYY-MM-DD.md` rather than failing silently. |
 
 ## Open items / assumptions needing user confirmation
 
@@ -83,10 +91,18 @@ config/
 db/
   schema.sql                 # Postgres DDL
 scraper/
-  apify_client.py            # calls Apify, normalizes results
-  ingest.py                  # fetch new posts per competitor, upsert to DB
+  apify_client.py            # Instagram: calls Apify, normalizes results
+  ingest.py                  # Instagram: fetch new posts per competitor, upsert to DB
+  media.py                   # shared: download + resize an image URL to store permanently
+  homepage.py                # website homepage screenshot + change detection
+  ads.py                     # Facebook/Instagram Ads Library tracker
+  tiktok.py                  # TikTok video tracker
+  youtube.py                 # YouTube video/Shorts tracker
+  x.py                       # X (Twitter) post tracker
 categorize/
-  classify.py                # applies the content taxonomy to new posts via Claude API
+  classify.py                # content taxonomy classification (classify_caption, reused across platforms)
+  messaging_taxonomy.py      # shared "what is this selling" taxonomy (homepage + ads)
+  vision.py                  # Claude-vision classifier for images (homepage + ads)
 scripts/
   init_db.py                 # creates schema, seeds competitors/categories from config/competitors.yaml
   run_weekly.py              # orchestrates ingest -> categorize -> log, writes logs/YYYY-MM-DD.md
