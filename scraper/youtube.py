@@ -47,7 +47,9 @@ def capture_youtube(run_type: str = "weekly", max_results: int = 15, max_shorts:
         competitors = cur.fetchall()
     conn.commit()
     stats["competitors_scraped"] = len(competitors)
-    by_channel = {url.rstrip("/").lower(): cid for cid, url in competitors}
+    # Successful items don't echo back the input URL - only `channelUsername`
+    # (the @handle, no @) - so match on that instead of the channel URL.
+    by_handle = {url.rstrip("/").split("@")[-1].lower(): cid for cid, url in competitors}
 
     try:
         raw_items = _run_actor([url for _, url in competitors], max_results, max_shorts)
@@ -56,8 +58,8 @@ def capture_youtube(run_type: str = "weekly", max_results: int = 15, max_shorts:
         raw_items = []
 
     for item in raw_items:
-        channel_url = (item.get("inputChannelUrl") or item.get("channelUrl") or "").rstrip("/").lower()
-        competitor_id = by_channel.get(channel_url)
+        username = (item.get("channelUsername") or "").lower()
+        competitor_id = by_handle.get(username)
         video_id = item.get("id")
         if not competitor_id or not video_id:
             continue
