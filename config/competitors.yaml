@@ -8,7 +8,11 @@
 # - name: Display name
 #   instagram_handle: handle without the @
 #   website_url: homepage URL used for the weekly screenshot tracker
-#   groups: [one or more competitive-set names from Competitors.rtf]
+#   facebook_url: optional — explicit Facebook Page URL when known; otherwise
+#     defaults to facebook.com/<instagram_handle> in scripts/init_db.py
+#   groups: [one or more competitive-set names from Competitors.rtf] (own brands use ["Our Brands"])
+#   is_own_brand: true for the user's own brands (tracked the same way, tagged separately
+#     so the dashboard can show "us vs. competitors" rather than lumping them in)
 #   notes: optional — flags dormancy, ambiguity, or assumptions made on your behalf
 
 - name: Walmart
@@ -243,3 +247,74 @@
   instagram_handle: simple_tire
   website_url: https://simpletire.com
   groups: [Online Tires]
+
+# ============================================================
+# OUR BRANDS — tracked the same way as competitors, tagged is_own_brand: true
+# Researched 2026-09-11 via web search (not the same deep-verification pass as
+# the competitor list above) — spot-check before relying on these for benchmarking.
+# ============================================================
+
+- name: Mavis Discount Tire / Mavis Tires and Brakes
+  instagram_handle: mavis_tires
+  website_url: https://www.mavis.com
+  facebook_url: https://www.facebook.com/mavistiresandbrakes
+  groups: [Our Brands]
+  is_own_brand: true
+  notes: "Merged per user confirmation — Mavis Discount Tire and Mavis Tires and Brakes share one corporate Instagram/website (@mavis_tires, mavis.com), no distinct per-banner accounts found."
+
+- name: Tire Kingdom
+  instagram_handle: tirekingdomofficial
+  website_url: https://www.tirekingdom.com
+  facebook_url: https://www.facebook.com/tirekingdom
+  groups: [Our Brands]
+  is_own_brand: true
+  notes: "Medium confidence — @tirekingdomofficial has only ~1,278 followers; multiple regional Tire Kingdom accounts also exist."
+
+- name: National Tire and Battery
+  instagram_handle: ntbofficial
+  website_url: https://www.ntb.com
+  facebook_url: https://www.facebook.com/nationaltireandbattery
+  groups: [Our Brands]
+  is_own_brand: true
+  notes: "Medium confidence — ~794 followers, smaller than expected for a national chain."
+
+- name: Pep Boys
+  instagram_handle: pepboysauto
+  website_url: https://www.pepboys.com
+  groups: [Our Brands]
+  is_own_brand: true
+
+- name: Midas
+  instagram_handle: midasofficial
+  website_url: https://www.midas.com
+  groups: [Our Brands]
+  is_own_brand: true
+  notes: "Medium confidence — many independent regional/franchise Midas accounts exist; @midasofficial looked like the best national candidate."
+
+- name: Brakes Plus
+  instagram_handle: brakesplus
+  website_url: https://www.brakesplus.com
+  facebook_url: https://www.facebook.com/brakesplusllc
+  groups: [Our Brands]
+  is_own_brand: true
+
+- name: Express Oil
+  instagram_handle: expressoil
+  website_url: https://www.expressoil.com
+  groups: [Our Brands]
+  is_own_brand: true
+  notes: "A second, smaller handle @express.oil.change also exists — @expressoil matches the full official name 'Express Oil Change & Tire Engineers'."
+
+- name: Tuffy
+  instagram_handle: tuffytireandauto
+  website_url: https://www.tuffyautoservice.com
+  facebook_url: https://www.facebook.com/tuffy
+  groups: [Our Brands]
+  is_own_brand: true
+  notes: "Operates mostly through independent per-location Instagram accounts — @tuffytireandauto looked like the closest to a corporate account, low-medium confidence."
+
+- name: Town Fair Tire
+  instagram_handle: town_fair_tire
+  website_url: https://www.townfairtire.com
+  groups: [Our Brands]
+  is_own_brand: true

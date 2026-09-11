@@ -49,11 +49,13 @@ def run():
                 handle = comp["instagram_handle"].lstrip("@").lower()
                 cur.execute(
                     """INSERT INTO competitors (name, instagram_handle, instagram_url, website_url,
-                                                 facebook_url, notes)
-                       VALUES (%(name)s, %(handle)s, %(url)s, %(website_url)s, %(facebook_url)s, %(notes)s)
+                                                 facebook_url, is_own_brand, notes)
+                       VALUES (%(name)s, %(handle)s, %(url)s, %(website_url)s, %(facebook_url)s,
+                               %(is_own_brand)s, %(notes)s)
                        ON CONFLICT (instagram_handle) DO UPDATE
                            SET name = EXCLUDED.name, website_url = EXCLUDED.website_url,
-                               facebook_url = EXCLUDED.facebook_url, notes = EXCLUDED.notes
+                               facebook_url = EXCLUDED.facebook_url,
+                               is_own_brand = EXCLUDED.is_own_brand, notes = EXCLUDED.notes
                        RETURNING id""",
                     {
                         "name": comp["name"],
@@ -64,6 +66,7 @@ def run():
                         # Not independently verified per-company - the ads scraper flags any
                         # page URL that returns no results so wrong guesses surface naturally.
                         "facebook_url": comp.get("facebook_url") or f"https://www.facebook.com/{handle}",
+                        "is_own_brand": bool(comp.get("is_own_brand", False)),
                         "notes": comp.get("notes"),
                     },
                 )

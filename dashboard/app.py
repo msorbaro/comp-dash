@@ -50,12 +50,12 @@ def load_posts() -> pd.DataFrame:
         SELECT p.id, p.competitor_id, p.instagram_post_id, p.post_url, p.post_type,
                p.posted_at, p.caption, p.media_url, p.like_count, p.comment_count,
                p.view_count, p.category, p.category_confidence, p.scraped_at,
-               c.name AS competitor_name, c.instagram_handle,
+               c.name AS competitor_name, c.instagram_handle, c.is_own_brand,
                array_agg(cg.group_name) AS groups
         FROM posts p
         JOIN competitors c ON c.id = p.competitor_id
         LEFT JOIN competitor_groups cg ON cg.competitor_id = c.id
-        GROUP BY p.id, c.name, c.instagram_handle
+        GROUP BY p.id, c.name, c.instagram_handle, c.is_own_brand
         """,
         conn,
     )
@@ -98,7 +98,7 @@ def load_homepage_snapshots() -> pd.DataFrame:
     df = pd.read_sql(
         """
         SELECT h.id, h.competitor_id, h.captured_at, h.changed, h.theme, h.theme_confidence,
-               c.name AS competitor_name
+               c.name AS competitor_name, c.is_own_brand
         FROM homepage_snapshots h
         JOIN competitors c ON c.id = h.competitor_id
         ORDER BY h.competitor_id, h.captured_at
@@ -127,7 +127,7 @@ def load_ads() -> pd.DataFrame:
         """
         SELECT a.id, a.competitor_id, a.ad_url, a.creative_type, a.caption, a.headline,
                a.platforms, a.start_date, a.end_date, a.is_active, a.category,
-               c.name AS competitor_name
+               c.name AS competitor_name, c.is_own_brand
         FROM ads a
         JOIN competitors c ON c.id = a.competitor_id
         ORDER BY a.start_date DESC
@@ -190,6 +190,12 @@ if posts.empty:
     st.warning("No posts in the database yet. Run `python -m scripts.run_weekly --backfill` first.")
     st.stop()
 
+scope = st.sidebar.radio("Scope", ["All", "My brands only", "Competitors only"])
+if scope == "My brands only":
+    posts = posts[posts["is_own_brand"]]
+elif scope == "Competitors only":
+    posts = posts[~posts["is_own_brand"]]
+
 all_groups = sorted({g for row in posts["groups"] for g in (row or []) if g})
 page = st.sidebar.radio(
     "View",
@@ -205,6 +211,26 @@ if page == "Cross-competitor summary":
     col1.metric("Competitors tracked", df["competitor_name"].nunique())
     col2.metric("Posts tracked", len(df))
     col3.metric("Avg likes / post", f"{df['like_count'].mean():,.0f}" if len(df) else "—")
+
+    if scope == "All" and df["is_own_brand"].any() and (~df["is_own_brand"]).any():
+        st.subheader("Us vs. competitors")
+        bench = df.groupby(df["is_own_brand"].map({True: "My brands", False: "Competitors"})).agg(
+            posts=("id", "count"), avg_likes=("like_count", "mean")
+        ).reset_index(names="group")
+        col_x, col_y = st.columns(2)
+        with col_x:
+            fig = px.bar(bench, x="group", y="avg_likes", labels={"avg_likes": "Avg likes / post", "group": ""})
+            st.plotly_chart(fig, use_container_width=True)
+        with col_y:
+            mine = df[df["is_own_brand"]]["category"].value_counts(normalize=True)
+            theirs = df[~df["is_own_brand"]]["category"].value_counts(normalize=True)
+            compare = pd.DataFrame({"My brands": mine, "Competitors": theirs}).fillna(0).reset_index(names="category")
+            compare = compare.melt(id_vars="category", var_name="group", value_name="share")
+            fig = px.bar(compare, x="share", y="category", color="group", orientation="h", barmode="group",
+                         labels={"share": "Share of posts", "category": ""})
+            fig.update_layout(yaxis={"categoryorder": "total ascending"})
+            st.plotly_chart(fig, use_container_width=True)
+        st.divider()
 
     st.subheader("Content mix across selected competitors")
     mix = df["category"].value_counts(normalize=True).reset_index()
@@ -302,6 +328,10 @@ elif page == "Competitor detail":
 # ------------------------------------------------------------- WEBSITE TRACKER --
 elif page == "Website tracker":
     homepages = load_homepage_snapshots()
+    if scope == "My brands only":
+        homepages = homepages[homepages["is_own_brand"]]
+    elif scope == "Competitors only":
+        homepages = homepages[~homepages["is_own_brand"]]
     if homepages.empty:
         st.info("No homepage snapshots yet. Run `python -m scripts.run_weekly --backfill` "
                 "(or the homepage capture step) first.")
@@ -346,6 +376,10 @@ elif page == "Website tracker":
 # ------------------------------------------------------------------ ADS LIBRARY --
 else:
     ads = load_ads()
+    if scope == "My brands only":
+        ads = ads[ads["is_own_brand"]]
+    elif scope == "Competitors only":
+        ads = ads[~ads["is_own_brand"]]
     if ads.empty:
         st.info("No ads captured yet. Run the ads capture step "
                 "(`python -c \"from scraper.ads import capture_ads; capture_ads()\"`) first.")

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS competitors (
     facebook_url      TEXT,
     follower_count    INTEGER,
     is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+    is_own_brand      BOOLEAN NOT NULL DEFAULT FALSE,
     notes             TEXT,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS competitors (
 -- Idempotent migrations for tables created before these columns existed.
 ALTER TABLE competitors ADD COLUMN IF NOT EXISTS website_url TEXT;
 ALTER TABLE competitors ADD COLUMN IF NOT EXISTS facebook_url TEXT;
+ALTER TABLE competitors ADD COLUMN IF NOT EXISTS is_own_brand BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS competitor_groups (
     competitor_id  INTEGER NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,

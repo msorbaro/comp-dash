@@ -6,10 +6,12 @@ last_updated: 2026-09-11
 
 # Competitor Research Dashboard
 
-Tracks three things for ~43 competitors (grouped into 10 competitive sets, see `Competitors.rtf` for the original source), all stored in a database so the dashboard never has to re-scrape live:
+Tracks three things for ~43 competitors (grouped into 10 competitive sets, see `Competitors.rtf` for the original source) **plus 9 of the user's own brands** (Mavis, Tire Kingdom, NTB, Pep Boys, Midas, Brakes Plus, Express Oil, Tuffy, Town Fair Tire — tagged `is_own_brand`, tracked identically but distinguishable in the dashboard), all stored in a database so the dashboard never has to re-scrape live:
 1. **Instagram activity** — posts, captions, likes, content category, cadence.
 2. **Website homepage tracker** — weekly screenshot per competitor, visual change detection (only stores a new image when the homepage actually changed), and a messaging-theme classification (deals vs. product vs. lifestyle, etc.).
 3. **Facebook/Instagram Ads Library** — currently-running (and recently run) ads per competitor: creative, caption, headline, platforms, how long each has been running, and the same messaging-theme classification.
+
+The dashboard has a global **Scope** filter (All / My brands only / Competitors only) and, when viewing "All", a "Us vs. competitors" benchmark comparison (avg engagement, content mix) on the summary page.
 
 ## Decisions made (confirmed with the user)
 
@@ -39,12 +41,17 @@ Handle research is done (`research/instagram_handles_research.md`, 39 companies,
 
 Also flagged, not blocking: **TJ Maxx, Firestone, Jiffy Lube, Mr. Appliance** all looked dormant (no posts in 2-4 months) as of the research date — still tracked, just don't expect much volume.
 
-- [x] GitHub account confirmed (`msorbaro`), repo will be private.
+- [x] GitHub account confirmed (`msorbaro`), repo created private at `github.com/msorbaro/comp-dash` and pushed.
 - [x] Supabase connection string provided and tested — working.
-- [x] Apify API token provided and tested — working (free plan).
-- [ ] Anthropic API key for the categorizer — still needed.
-- [ ] Create the actual GitHub repo (`github.com/new`) and push.
-- [ ] Confirm actual Apify actor + real cost after a small test run (1-2 accounts) before running the full list.
+- [x] Apify API token provided and tested — working, billing added (cap raised from $5 to $19/month).
+- [x] Anthropic API key provided and tested — working.
+- [x] All three Apify actors confirmed + real costs measured (see `docs/apify_setup.md`).
+
+### Own brands (added 2026-09-11)
+Researched via web search (lighter-touch pass than the competitor list — spot-check before relying on these for benchmarking):
+- [ ] **Mavis Discount Tire / Mavis Tires and Brakes** — merged into one entry per user confirmation; they share one Instagram (@mavis_tires) and website (mavis.com).
+- [ ] **Tire Kingdom, National Tire and Battery, Midas, Tuffy** — medium/low confidence handles (small follower counts and/or many regional franchise accounts made the "true" corporate account harder to pin down than the competitor list). Worth a manual double-check.
+- [ ] **Pep Boys, Brakes Plus, Express Oil, Town Fair Tire** — higher confidence, clear single corporate account found.
 - [ ] Backfill window on first run: defaulting to **last 90 days** per account — adjustable in `.env` (`BACKFILL_DAYS`).
 
 ## Dashboard scope (per competitor + summary)
