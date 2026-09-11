@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS competitors (
     instagram_url     TEXT NOT NULL,
     website_url       TEXT,
     facebook_url      TEXT,
+    tiktok_handle     TEXT,
+    youtube_url       TEXT,
+    x_handle          TEXT,
     follower_count    INTEGER,
     is_active         BOOLEAN NOT NULL DEFAULT TRUE,
     is_own_brand      BOOLEAN NOT NULL DEFAULT FALSE,
@@ -20,6 +23,9 @@ CREATE TABLE IF NOT EXISTS competitors (
 ALTER TABLE competitors ADD COLUMN IF NOT EXISTS website_url TEXT;
 ALTER TABLE competitors ADD COLUMN IF NOT EXISTS facebook_url TEXT;
 ALTER TABLE competitors ADD COLUMN IF NOT EXISTS is_own_brand BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE competitors ADD COLUMN IF NOT EXISTS tiktok_handle TEXT;
+ALTER TABLE competitors ADD COLUMN IF NOT EXISTS youtube_url TEXT;
+ALTER TABLE competitors ADD COLUMN IF NOT EXISTS x_handle TEXT;
 
 CREATE TABLE IF NOT EXISTS competitor_groups (
     competitor_id  INTEGER NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,
@@ -96,10 +102,74 @@ CREATE INDEX IF NOT EXISTS idx_ads_competitor ON ads(competitor_id);
 CREATE INDEX IF NOT EXISTS idx_ads_is_active ON ads(is_active);
 CREATE INDEX IF NOT EXISTS idx_ads_category ON ads(category);
 
+CREATE TABLE IF NOT EXISTS tiktok_videos (
+    id                    SERIAL PRIMARY KEY,
+    competitor_id         INTEGER NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,
+    tiktok_video_id       TEXT NOT NULL UNIQUE,
+    video_url             TEXT NOT NULL,
+    caption               TEXT,
+    posted_at             TIMESTAMPTZ,
+    duration_seconds      INTEGER,
+    thumbnail             BYTEA,
+    view_count            INTEGER,
+    like_count            INTEGER,
+    comment_count         INTEGER,
+    share_count           INTEGER,
+    category              TEXT,
+    category_confidence   TEXT CHECK (category_confidence IN ('high', 'medium', 'low')),
+    scraped_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tiktok_competitor ON tiktok_videos(competitor_id);
+CREATE INDEX IF NOT EXISTS idx_tiktok_posted_at ON tiktok_videos(posted_at);
+
+CREATE TABLE IF NOT EXISTS youtube_videos (
+    id                    SERIAL PRIMARY KEY,
+    competitor_id         INTEGER NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,
+    youtube_video_id      TEXT NOT NULL UNIQUE,
+    video_url             TEXT NOT NULL,
+    title                 TEXT,
+    caption               TEXT,
+    posted_at             TIMESTAMPTZ,
+    duration              TEXT,
+    video_type            TEXT CHECK (video_type IN ('video', 'shorts')),
+    thumbnail             BYTEA,
+    view_count            INTEGER,
+    like_count            INTEGER,
+    comment_count         INTEGER,
+    category              TEXT,
+    category_confidence   TEXT CHECK (category_confidence IN ('high', 'medium', 'low')),
+    scraped_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_youtube_competitor ON youtube_videos(competitor_id);
+CREATE INDEX IF NOT EXISTS idx_youtube_posted_at ON youtube_videos(posted_at);
+
+CREATE TABLE IF NOT EXISTS x_posts (
+    id                    SERIAL PRIMARY KEY,
+    competitor_id         INTEGER NOT NULL REFERENCES competitors(id) ON DELETE CASCADE,
+    tweet_id              TEXT NOT NULL UNIQUE,
+    post_url              TEXT NOT NULL,
+    text                  TEXT,
+    posted_at             TIMESTAMPTZ,
+    like_count            INTEGER,
+    retweet_count         INTEGER,
+    reply_count           INTEGER,
+    quote_count           INTEGER,
+    view_count            INTEGER,
+    is_retweet            BOOLEAN NOT NULL DEFAULT FALSE,
+    category              TEXT,
+    category_confidence   TEXT CHECK (category_confidence IN ('high', 'medium', 'low')),
+    scraped_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_x_competitor ON x_posts(competitor_id);
+CREATE INDEX IF NOT EXISTS idx_x_posted_at ON x_posts(posted_at);
+
 CREATE TABLE IF NOT EXISTS scrape_runs (
     id                       SERIAL PRIMARY KEY,
     run_date                 TIMESTAMPTZ NOT NULL DEFAULT now(),
-    source                   TEXT NOT NULL DEFAULT 'instagram' CHECK (source IN ('instagram', 'homepage', 'ads')),
+    source                   TEXT NOT NULL DEFAULT 'instagram' CHECK (source IN ('instagram', 'homepage', 'ads', 'tiktok', 'youtube', 'x')),
     run_type                 TEXT NOT NULL CHECK (run_type IN ('backfill', 'weekly', 'manual')),
     competitors_scraped      INTEGER NOT NULL DEFAULT 0,
     posts_added              INTEGER NOT NULL DEFAULT 0,

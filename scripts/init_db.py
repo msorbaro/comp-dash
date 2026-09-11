@@ -49,12 +49,16 @@ def run():
                 handle = comp["instagram_handle"].lstrip("@").lower()
                 cur.execute(
                     """INSERT INTO competitors (name, instagram_handle, instagram_url, website_url,
-                                                 facebook_url, is_own_brand, notes)
+                                                 facebook_url, tiktok_handle, youtube_url, x_handle,
+                                                 is_own_brand, notes)
                        VALUES (%(name)s, %(handle)s, %(url)s, %(website_url)s, %(facebook_url)s,
+                               %(tiktok_handle)s, %(youtube_url)s, %(x_handle)s,
                                %(is_own_brand)s, %(notes)s)
                        ON CONFLICT (instagram_handle) DO UPDATE
                            SET name = EXCLUDED.name, website_url = EXCLUDED.website_url,
                                facebook_url = EXCLUDED.facebook_url,
+                               tiktok_handle = EXCLUDED.tiktok_handle,
+                               youtube_url = EXCLUDED.youtube_url, x_handle = EXCLUDED.x_handle,
                                is_own_brand = EXCLUDED.is_own_brand, notes = EXCLUDED.notes
                        RETURNING id""",
                     {
@@ -62,10 +66,14 @@ def run():
                         "handle": handle,
                         "url": comp.get("instagram_url") or f"https://instagram.com/{handle}",
                         "website_url": comp.get("website_url"),
-                        # Best-guess default: most brands use the same slug as their IG handle.
-                        # Not independently verified per-company - the ads scraper flags any
-                        # page URL that returns no results so wrong guesses surface naturally.
+                        # Best-guess defaults below: most brands use the same slug as their IG
+                        # handle. Not independently verified per-company - each scraper flags
+                        # any handle that returns no results, so wrong guesses surface naturally
+                        # in logs/YYYY-MM-DD.md rather than failing silently.
                         "facebook_url": comp.get("facebook_url") or f"https://www.facebook.com/{handle}",
+                        "tiktok_handle": comp.get("tiktok_handle") or handle,
+                        "youtube_url": comp.get("youtube_url") or f"https://www.youtube.com/@{handle}",
+                        "x_handle": comp.get("x_handle") or handle,
                         "is_own_brand": bool(comp.get("is_own_brand", False)),
                         "notes": comp.get("notes"),
                     },

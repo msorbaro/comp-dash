@@ -158,6 +158,88 @@ def with_ad_creatives(ads_df: pd.DataFrame) -> pd.DataFrame:
     return ads_df
 
 
+@st.cache_data(ttl=600)
+def load_tiktok() -> pd.DataFrame:
+    conn = get_conn()
+    df = pd.read_sql(
+        """
+        SELECT t.id, t.competitor_id, t.video_url, t.caption, t.posted_at, t.duration_seconds,
+               t.view_count, t.like_count, t.comment_count, t.share_count, t.category,
+               c.name AS competitor_name, c.is_own_brand
+        FROM tiktok_videos t
+        JOIN competitors c ON c.id = t.competitor_id
+        ORDER BY t.posted_at DESC
+        """,
+        conn,
+    )
+    df["posted_at"] = pd.to_datetime(df["posted_at"])
+    return df
+
+
+@st.cache_data(ttl=600)
+def load_tiktok_thumbnail(video_id: int):
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT thumbnail FROM tiktok_videos WHERE id = %s", (video_id,))
+        row = cur.fetchone()
+    if row and row[0]:
+        return f"data:image/jpeg;base64,{base64.b64encode(row[0]).decode()}"
+    return None
+
+
+@st.cache_data(ttl=600)
+def load_youtube() -> pd.DataFrame:
+    conn = get_conn()
+    df = pd.read_sql(
+        """
+        SELECT y.id, y.competitor_id, y.video_url, y.title, y.caption, y.posted_at, y.duration,
+               y.video_type, y.view_count, y.like_count, y.comment_count, y.category,
+               c.name AS competitor_name, c.is_own_brand
+        FROM youtube_videos y
+        JOIN competitors c ON c.id = y.competitor_id
+        ORDER BY y.posted_at DESC
+        """,
+        conn,
+    )
+    df["posted_at"] = pd.to_datetime(df["posted_at"])
+    return df
+
+
+@st.cache_data(ttl=600)
+def load_youtube_thumbnail(video_id: int):
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT thumbnail FROM youtube_videos WHERE id = %s", (video_id,))
+        row = cur.fetchone()
+    if row and row[0]:
+        return f"data:image/jpeg;base64,{base64.b64encode(row[0]).decode()}"
+    return None
+
+
+@st.cache_data(ttl=600)
+def load_x_posts() -> pd.DataFrame:
+    conn = get_conn()
+    df = pd.read_sql(
+        """
+        SELECT x.id, x.competitor_id, x.post_url, x.text, x.posted_at, x.like_count,
+               x.retweet_count, x.reply_count, x.quote_count, x.view_count, x.is_retweet,
+               x.category, c.name AS competitor_name, c.is_own_brand
+        FROM x_posts x
+        JOIN competitors c ON c.id = x.competitor_id
+        ORDER BY x.posted_at DESC
+        """,
+        conn,
+    )
+    df["posted_at"] = pd.to_datetime(df["posted_at"])
+    return df
+
+
+def with_thumbnail_col(df: pd.DataFrame, loader) -> pd.DataFrame:
+    df = df.copy()
+    df.insert(0, "image", df["id"].map(loader))
+    return df
+
+
 def build_timeline(snapshots: pd.DataFrame) -> list:
     """Collapses consecutive unchanged rows into single segments: each
     segment is (snapshot_id_with_image, start_date, end_date, theme)."""
@@ -199,7 +281,8 @@ elif scope == "Competitors only":
 all_groups = sorted({g for row in posts["groups"] for g in (row or []) if g})
 page = st.sidebar.radio(
     "View",
-    ["Cross-competitor summary", "Competitor detail", "Website tracker", "Ads library"],
+    ["Cross-competitor summary", "Competitor detail", "Website tracker", "Ads library",
+     "TikTok / YouTube / X"],
 )
 
 # ---------------------------------------------------------------- SUMMARY --
@@ -374,7 +457,7 @@ elif page == "Website tracker":
         st.divider()
 
 # ------------------------------------------------------------------ ADS LIBRARY --
-else:
+elif page == "Ads library":
     ads = load_ads()
     if scope == "My brands only":
         ads = ads[ads["is_own_brand"]]
@@ -430,3 +513,108 @@ else:
         hide_index=True,
         use_container_width=True,
     )
+
+# ------------------------------------------------------- TIKTOK / YOUTUBE / X --
+else:
+    platform = st.sidebar.radio("Platform", ["TikTok", "YouTube", "X"])
+
+    def _scoped(df):
+        if scope == "My brands only":
+            return df[df["is_own_brand"]]
+        if scope == "Competitors only":
+            return df[~df["is_own_brand"]]
+        return df
+
+    if platform == "TikTok":
+        df = _scoped(load_tiktok())
+        if df.empty:
+            st.info("No TikTok videos captured yet.")
+            st.stop()
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Videos tracked", len(df))
+        col2.metric("Avg views", f"{df['view_count'].mean():,.0f}" if len(df) else "—")
+        col3.metric("Avg likes", f"{df['like_count'].mean():,.0f}" if len(df) else "—")
+
+        st.subheader("Content mix")
+        mix = df["category"].value_counts().reset_index()
+        mix.columns = ["category", "count"]
+        fig = px.bar(mix, x="count", y="category", orientation="h",
+                     color="category", color_discrete_map=CATEGORY_COLORS,
+                     labels={"count": "# of videos", "category": ""})
+        fig.update_layout(showlegend=False, yaxis={"categoryorder": "total ascending"})
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Top videos by views")
+        top = with_thumbnail_col(df.sort_values("view_count", ascending=False).head(20), load_tiktok_thumbnail)
+        st.dataframe(
+            top[["image", "competitor_name", "posted_at", "category", "view_count", "like_count",
+                 "comment_count", "share_count", "duration_seconds", "caption", "video_url"]],
+            column_config={
+                "image": st.column_config.ImageColumn("Video"),
+                "video_url": st.column_config.LinkColumn("Link", display_text="Open"),
+                "duration_seconds": st.column_config.NumberColumn("Duration (s)"),
+            },
+            hide_index=True, use_container_width=True,
+        )
+
+    elif platform == "YouTube":
+        df = _scoped(load_youtube())
+        if df.empty:
+            st.info("No YouTube videos captured yet.")
+            st.stop()
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Videos tracked", len(df))
+        col2.metric("Avg views", f"{df['view_count'].mean():,.0f}" if len(df) else "—")
+        col3.metric("Avg likes", f"{df['like_count'].mean():,.0f}" if len(df) else "—")
+
+        st.subheader("Content mix")
+        mix = df["category"].value_counts().reset_index()
+        mix.columns = ["category", "count"]
+        fig = px.bar(mix, x="count", y="category", orientation="h",
+                     color="category", color_discrete_map=CATEGORY_COLORS,
+                     labels={"count": "# of videos", "category": ""})
+        fig.update_layout(showlegend=False, yaxis={"categoryorder": "total ascending"})
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Top videos by views")
+        top = with_thumbnail_col(df.sort_values("view_count", ascending=False).head(20), load_youtube_thumbnail)
+        st.dataframe(
+            top[["image", "competitor_name", "video_type", "posted_at", "category", "view_count",
+                 "like_count", "comment_count", "duration", "title", "caption", "video_url"]],
+            column_config={
+                "image": st.column_config.ImageColumn("Video"),
+                "video_url": st.column_config.LinkColumn("Link", display_text="Open"),
+            },
+            hide_index=True, use_container_width=True,
+        )
+
+    else:  # X
+        df = _scoped(load_x_posts())
+        if df.empty:
+            st.info("No X posts captured yet.")
+            st.stop()
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Posts tracked", len(df))
+        col2.metric("Avg likes", f"{df['like_count'].mean():,.0f}" if len(df) else "—")
+        col3.metric("Avg retweets", f"{df['retweet_count'].mean():,.0f}" if len(df) else "—")
+
+        st.subheader("Content mix")
+        mix = df["category"].value_counts().reset_index()
+        mix.columns = ["category", "count"]
+        fig = px.bar(mix, x="count", y="category", orientation="h",
+                     color="category", color_discrete_map=CATEGORY_COLORS,
+                     labels={"count": "# of posts", "category": ""})
+        fig.update_layout(showlegend=False, yaxis={"categoryorder": "total ascending"})
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Top posts by likes")
+        top = df.sort_values("like_count", ascending=False).head(20)
+        st.dataframe(
+            top[["competitor_name", "posted_at", "category", "like_count", "retweet_count",
+                 "reply_count", "quote_count", "view_count", "is_retweet", "text", "post_url"]],
+            column_config={"post_url": st.column_config.LinkColumn("Link", display_text="Open")},
+            hide_index=True, use_container_width=True,
+        )
