@@ -6,6 +6,7 @@ import os
 
 import anthropic
 
+from categorize.attribute_taxonomy import MESSAGE_ATTRIBUTES, MESSAGE_ATTRIBUTE_SYSTEM_PROMPT
 from categorize.funnel_taxonomy import FUNNEL_STAGES, FUNNEL_SYSTEM_PROMPT
 from db.connection import get_conn
 
@@ -103,6 +104,39 @@ def classify_funnel_stage(text: str, category: str = "", context: str = "") -> t
         return "Think", "low"
 
 
+def classify_message_attribute(text: str, category: str = "", context: str = "") -> tuple:
+    """Classifies a piece of text content into the fixed message-attribute
+    taxonomy (see categorize/attribute_taxonomy.py) - the value proposition
+    it's leaning on (Safety, Trust, Price, etc), not the funnel stage or
+    format. Returns (attribute, confidence), falling back to
+    ("None Clear / Other", "low") on any failure.
+    """
+    user_content = (
+        f"Content type: {context or 'social media post'}\n"
+        f"Assigned content category (for reference): {category or 'unknown'}\n"
+        f"Text: {text or '(no text)'}"
+    )
+    try:
+        resp = _get_client().messages.create(
+            model=MODEL,
+            max_tokens=80,
+            system=MESSAGE_ATTRIBUTE_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        raw_text = resp.content[0].text.strip()
+        if raw_text.startswith("```"):
+            raw_text = raw_text.strip("`")
+            raw_text = raw_text[raw_text.find("{"):raw_text.rfind("}") + 1]
+        parsed = json.loads(raw_text)
+        attribute = parsed["attribute"]
+        confidence = parsed.get("confidence", "medium")
+        if attribute not in MESSAGE_ATTRIBUTES:
+            return "None Clear / Other", "low"
+        return attribute, confidence
+    except Exception:  # noqa: BLE001
+        return "None Clear / Other", "low"
+
+
 def classify_pending_posts(batch_size: int = 200, commit_every: int = 25) -> dict:
     """Classifies up to batch_size pending Instagram posts, committing every
     `commit_every` posts so a crash/timeout partway through a large batch
@@ -162,6 +196,37 @@ def classify_pending_funnel_stage(batch_size: int = 2000, commit_every: int = 25
             cur.execute(
                 "UPDATE posts SET funnel_stage = %s, funnel_stage_confidence = %s WHERE id = %s",
                 (stage, confidence, post_id),
+            )
+        stats["classified"] += 1
+        if stats["classified"] % commit_every == 0:
+            conn.commit()
+
+    conn.commit()
+    return stats
+
+
+def classify_pending_message_attribute(batch_size: int = 2000, commit_every: int = 25) -> dict:
+    """Assigns a message attribute to Instagram posts that already have a
+    category but no message_attribute yet - mirrors classify_pending_funnel_stage.
+    """
+    conn = get_conn()
+    stats = {"classified": 0}
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT id, caption, category FROM posts
+               WHERE category IS NOT NULL AND message_attribute IS NULL LIMIT %s""",
+            (batch_size,),
+        )
+        pending = cur.fetchall()
+    conn.commit()
+
+    for post_id, caption, category in pending:
+        attribute, confidence = classify_message_attribute(caption, category, "Instagram post")
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE posts SET message_attribute = %s, message_attribute_confidence = %s WHERE id = %s",
+                (attribute, confidence, post_id),
             )
         stats["classified"] += 1
         if stats["classified"] % commit_every == 0:

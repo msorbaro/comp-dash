@@ -39,6 +39,29 @@ export function mixLabel(mix) {
   return `${mix[0]} / ${mix[1]} / ${mix[2]}`
 }
 
+// Real classified message-attribute counts -> displayable rows, sorted by
+// prominence, excluding the catch-all bucket. Works for both the one-sided
+// case (Category page: just `breakdown`) and the two-sided comparison
+// (Landscape page: `breakdown` = ours, `otherBreakdown` = the rest of the
+// market) - pass otherBreakdown only when you have a comparison to show.
+export function attributeRows(breakdown, otherBreakdown = null, limit = 5) {
+  if (!breakdown) return []
+  const ourTotal = breakdown.total || 0
+  const otherTotal = otherBreakdown?.total || 0
+  const attrs = Object.keys(breakdown.counts || {}).filter((a) => a !== 'None Clear / Other')
+  const rows = attrs.map((attribute) => {
+    const ourCount = breakdown.counts[attribute] || 0
+    const otherCount = otherBreakdown?.counts?.[attribute] || 0
+    return {
+      attribute,
+      ourCount, ourTotal, ourPct: ourTotal ? Math.round((ourCount / ourTotal) * 100) : 0,
+      otherCount, otherTotal, otherPct: otherTotal ? Math.round((otherCount / otherTotal) * 100) : 0,
+    }
+  })
+  const sortKey = otherBreakdown ? (r) => r.otherPct : (r) => r.ourPct
+  return rows.sort((a, b) => sortKey(b) - sortKey(a)).filter((r) => r.ourCount > 0 || r.otherCount > 0).slice(0, limit)
+}
+
 export function dominantIdx(mix) {
   return mix.indexOf(Math.max(...mix))
 }
@@ -84,12 +107,12 @@ export const MEDIA_HEIGHT = { vertical: 320, wide: 160, search: 260, square: 190
 export const cardBase = { background: SURFACE, border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '20px 22px' }
 export const inkPanel = { background: INK, borderRadius: 13, padding: '24px 26px', color: '#FFFFFF' }
 
-// Definitions shown on hover next to each top-level brand stat - written out
-// in full so "69" or "consistency" is never just an unexplained number.
+// Shown ALWAYS (not just on hover - a tooltip alone wasn't being noticed) as
+// a caption directly under each top-level brand stat, so "69" or "4/7" is
+// never an unexplained number.
 export const METRIC_DEFINITIONS = {
-  trackedOutput: 'Total items posted across all 7 channels in the last 90 days, divided by 3 to give a monthly rate.',
-  activeChannels: 'How many of the 7 tracked channels have meaningful volume (more than 3 items - or 2 for Homepage - in this brand’s full tracked history).',
-  consistency: 'How similar the See/Think/Do mix is across this brand’s active channels, on a 0-100 scale. Calculated as 100 minus the average of (largest gap between channels on % See) and (largest gap on % Do). 100 = every active channel tells the same funnel story; a lower number means the message shifts a lot by channel.',
+  trackedOutput: '90-day total across all channels, shown as a monthly rate (÷3).',
+  activeChannels: 'Channels averaging at least 5 posts/ads per month over the last 90 days, out of 7 tracked. Homepage always counts as active (checked weekly regardless of change).',
 }
 
 export function engagementExplanation(channelId) {
@@ -102,4 +125,12 @@ export function engagementExplanation(channelId) {
     search: 'Not tracked — Google’s Ads Transparency Center does not expose engagement numbers.',
     homepage: 'Not applicable — a homepage snapshot has no engagement metric.',
   }[channelId] || 'Not tracked for this channel.'
+}
+
+// Short version for the narrow "Avg. engagement" column itself.
+export function engagementUnitLabel(channelId) {
+  return {
+    ig_organic: 'avg likes / post', tiktok: 'avg views / video', youtube: 'avg views / video',
+    x: 'avg likes+RTs / post', meta_ads: 'not tracked', search: 'not tracked', homepage: 'n/a',
+  }[channelId] || 'not tracked'
 }

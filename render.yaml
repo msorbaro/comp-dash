@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: brand-signal
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: APIFY_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SITE_PASSWORD
+        sync: false
+      - key: BACKFILL_DAYS
+        value: "90"
+      - key: MAX_POSTS_PER_RUN
+        value: "20"
+      - key: BACKFILL_MAX_POSTS
+        value: "200"

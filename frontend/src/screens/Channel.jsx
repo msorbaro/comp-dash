@@ -2,22 +2,27 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { SectionNumber, StageBar, MixCaption, ReadLine, CreativeCard, InfoLabel } from '../components/Widgets'
 import {
-  paidChipStyle, fmtNum, dominantIdx, dominantWord, engagementExplanation,
+  paidChipStyle, fmtNum, dominantIdx, dominantWord, engagementUnitLabel,
   STAGES, MUTED, INK_TEXT, SLATE_600, SLATE_200, TEAL_700, TRACK, DEEP_TEAL,
 } from '../styles'
 
-const CREATIVE_FETCH_N = 24 // enough headroom that clicking a stage/type filter still has real results to show
+// This page's copy literally says "every piece of creative we captured", and
+// a stage/type filter must be able to find any item that contributed to its
+// own percentage - so fetch everything (a channel tops out around 40 items
+// in practice), not a capped preview like the Brand-page section grids use.
+const CREATIVE_FETCH_N = 500
 
-export default function Channel({ brand, category, channelId, onBack }) {
+export default function Channel({ brand, category, channelId, onBack, initialTypeFilter = null }) {
   const [data, setData] = useState(null)
   const [stageFilter, setStageFilter] = useState(null)
-  const [typeFilter, setTypeFilter] = useState(null)
+  const [typeFilter, setTypeFilter] = useState(initialTypeFilter)
 
   useEffect(() => {
     setData(null)
     setStageFilter(null)
-    setTypeFilter(null)
+    setTypeFilter(initialTypeFilter)
     api.channel(brand, channelId, CREATIVE_FETCH_N).then(setData)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brand, channelId])
 
   if (!data) return <div style={{ padding: 40, color: MUTED }}>Loading…</div>
@@ -25,8 +30,8 @@ export default function Channel({ brand, category, channelId, onBack }) {
   const ch = r.channel
   const topCt = r.content_types.length ? [...r.content_types].sort((a, b) => b.pct - a.pct)[0].name.toLowerCase() : 'unclassified content'
   const idx = dominantIdx(r.split)
-  const takeaway = `${r.split[idx]}% ${dominantWord(r.split).replace('-led', '')}. Led by ${topCt} ` +
-    `(${r.total_all_time} tracked, ~${r.monthly_avg_all_time}/mo).`
+  const takeaway = r.read_line || (`${r.split[idx]}% ${dominantWord(r.split).replace('-led', '')}. Led by ${topCt} ` +
+    `(${r.total_all_time} tracked, ~${r.monthly_avg_all_time}/mo).`)
 
   const filtered = data.creatives.filter(
     (cr) => (!stageFilter || cr.stage === stageFilter) && (!typeFilter || cr.type === typeFilter)
@@ -71,10 +76,14 @@ export default function Channel({ brand, category, channelId, onBack }) {
                     <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.1em', color: SLATE_600 }}>{s.name.toUpperCase()}</div>
                     <div style={{ fontSize: 22, fontWeight: 600, color: s.color }}>{r.split[i]}%</div>
                   </div>
-                  <div style={{ marginTop: 11, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {(r.messages[s.name] || []).length ? r.messages[s.name].map((m, j) => (
-                      <div key={j} style={{ fontSize: 11, color: INK_TEXT, lineHeight: 1.4, padding: '7px 9px', background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 7 }}>{m}</div>
-                    )) : <div style={{ fontSize: 10.5, color: MUTED, fontStyle: 'italic' }}>no examples yet</div>}
+                  <div style={{ marginTop: 11 }}>
+                    {r.stage_summaries?.[s.name] ? (
+                      <div style={{ fontSize: 11, color: INK_TEXT, lineHeight: 1.45, padding: '7px 9px', background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 7 }}>
+                        {r.stage_summaries[s.name]}
+                      </div>
+                    ) : <div style={{ fontSize: 10.5, color: MUTED, fontStyle: 'italic' }}>
+                      {r.total_all_time > 0 ? 'summarizing…' : 'no examples yet'}
+                    </div>}
                   </div>
                 </button>
               )
@@ -92,12 +101,14 @@ export default function Channel({ brand, category, channelId, onBack }) {
             <div style={{ fontSize: 11, marginTop: 4, color: MUTED }}>
               ~{r.monthly_avg_all_time}/mo avg{r.last_posted ? ` · last posted ${r.last_posted}` : ''}
             </div>
-            <div style={{ fontSize: 9.5, letterSpacing: '.12em', color: MUTED, fontWeight: 600, margin: '18px 0 9px' }}>CADENCE · 12 WEEKS</div>
-            <Sparkline weeks={r.weeks} height={56} />
+            <div style={{ fontSize: 9.5, letterSpacing: '.12em', color: MUTED, fontWeight: 600, margin: '18px 0 2px' }}>CADENCE · 12 WEEKS</div>
+            <div style={{ fontSize: 9, color: MUTED, marginBottom: 6 }}>Y: {ch.unit} per week · X: week-starting date</div>
+            <Sparkline weeks={r.weeks} labels={r.week_labels} height={56} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 18 }}>
-              <div title={engagementExplanation(ch.id)} style={{ cursor: 'help' }}>
-                <div style={{ fontSize: 9.5, letterSpacing: '.12em', color: MUTED, fontWeight: 600 }}>AVG. ENGAGEMENT ⓘ</div>
+              <div>
+                <div style={{ fontSize: 9.5, letterSpacing: '.12em', color: MUTED, fontWeight: 600 }}>AVG. ENGAGEMENT</div>
                 <div style={{ fontSize: 19, fontWeight: 600, marginTop: 4 }}>{r.engagement != null ? fmtNum(r.engagement) : '—'}</div>
+                <div style={{ fontSize: 9.5, color: MUTED, marginTop: 1 }}>{engagementUnitLabel(ch.id)}</div>
               </div>
               <div title="Share of this brand's total 90-day output across all channels that this one channel accounts for.">
                 <div style={{ fontSize: 9.5, letterSpacing: '.12em', color: MUTED, fontWeight: 600 }}>SHARE OF OUTPUT (90D)</div>
@@ -153,7 +164,7 @@ export default function Channel({ brand, category, channelId, onBack }) {
         </div>
         {filtered.length ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 13 }}>
-            {filtered.map((cr, i) => <CreativeCard key={i} cr={cr} big />)}
+            {filtered.map((cr, i) => <CreativeCard key={i} cr={cr} big brand={brand} />)}
           </div>
         ) : <div style={{ fontSize: 12, color: MUTED, fontStyle: 'italic' }}>
           {data.creatives.length ? 'No creative matches this filter.' : 'Nothing captured on this channel yet.'}
@@ -163,13 +174,27 @@ export default function Channel({ brand, category, channelId, onBack }) {
   )
 }
 
-function Sparkline({ weeks, height = 44 }) {
+function Sparkline({ weeks, labels, height = 44 }) {
   const m = Math.max(...weeks, 1)
   return (
-    <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', height }}>
-      {weeks.map((w, i) => (
-        <div key={i} style={{ flex: 1, height: Math.max(5, (w / m) * height), background: '#CFE9EC', borderRadius: '2px 2px 0 0' }} />
-      ))}
+    <div>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', height }}>
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height, marginRight: 4, fontSize: 8.5, color: MUTED, fontFamily: 'ui-monospace,Menlo,monospace' }}>
+          <span>{m}</span><span>0</span>
+        </div>
+        {weeks.map((w, i) => (
+          <div key={i} title={`${labels?.[i] || ''}: ${w}`} style={{ flex: 1, height: Math.max(5, (w / m) * height), background: '#CFE9EC', borderRadius: '2px 2px 0 0' }} />
+        ))}
+      </div>
+      {labels && (
+        <div style={{ display: 'flex', gap: 4, marginTop: 3, marginLeft: 20 }}>
+          {weeks.map((_, i) => (
+            <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 7.5, color: MUTED, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+              {i % 3 === 0 ? labels[i] : ''}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

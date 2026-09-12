@@ -21,7 +21,7 @@ import imagehash
 from apify_client import ApifyClient
 from PIL import Image
 
-from categorize.vision import classify_image_funnel_stage, classify_image_theme
+from categorize.vision import classify_image_funnel_stage, classify_image_message_attribute, classify_image_theme
 from db.connection import get_conn
 
 ACTOR_ID = "apify/screenshot-url"
@@ -90,7 +90,8 @@ def _process_screenshots(conn, competitors: list, raw_screenshots: dict, stats: 
 
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT image_hash, theme, theme_confidence, funnel_stage, funnel_stage_confidence
+                """SELECT image_hash, theme, theme_confidence, funnel_stage, funnel_stage_confidence,
+                          message_attribute, message_attribute_confidence
                    FROM homepage_snapshots WHERE competitor_id = %s ORDER BY captured_at DESC LIMIT 1""",
                 (competitor_id,),
             )
@@ -99,27 +100,31 @@ def _process_screenshots(conn, competitors: list, raw_screenshots: dict, stats: 
         changed = True
         theme, confidence = None, None
         funnel_stage, funnel_confidence = None, None
+        message_attribute, attribute_confidence = None, None
         if prev:
-            prev_hash, prev_theme, prev_confidence, prev_funnel_stage, prev_funnel_confidence = prev
+            (prev_hash, prev_theme, prev_confidence, prev_funnel_stage, prev_funnel_confidence,
+             prev_attribute, prev_attribute_confidence) = prev
             distance = imagehash.hex_to_hash(new_hash) - imagehash.hex_to_hash(prev_hash)
             if distance <= HASH_MATCH_THRESHOLD:
                 changed = False
                 theme, confidence = prev_theme, prev_confidence
                 funnel_stage, funnel_confidence = prev_funnel_stage, prev_funnel_confidence
+                message_attribute, attribute_confidence = prev_attribute, prev_attribute_confidence
 
         if changed:
             homepage_context = "This is a screenshot of a company's website homepage."
             theme, confidence = classify_image_theme(jpeg_bytes, extra_context=homepage_context)
             funnel_stage, funnel_confidence = classify_image_funnel_stage(jpeg_bytes, extra_context=homepage_context)
+            message_attribute, attribute_confidence = classify_image_message_attribute(jpeg_bytes, extra_context=homepage_context)
 
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO homepage_snapshots
                        (competitor_id, screenshot, image_hash, changed, theme, theme_confidence,
-                        funnel_stage, funnel_stage_confidence)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                        funnel_stage, funnel_stage_confidence, message_attribute, message_attribute_confidence)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (competitor_id, jpeg_bytes if changed else None, new_hash, changed, theme, confidence,
-                 funnel_stage, funnel_confidence),
+                 funnel_stage, funnel_confidence, message_attribute, attribute_confidence),
             )
         conn.commit()
 

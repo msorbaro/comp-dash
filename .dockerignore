@@ -1,0 +1,18 @@
+.env
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.tools
+frontend/node_modules
+frontend/dist
+.claude
+*.pdf
+*.png
+new designs
+scraper
+scripts
+dashboard
+docs
+research

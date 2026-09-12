@@ -47,7 +47,7 @@ def load_posts() -> pd.DataFrame:
         """
         SELECT p.id, p.competitor_id, p.instagram_post_id, p.post_url, p.post_type,
                p.posted_at, p.caption, p.media_url, p.like_count, p.comment_count,
-               p.view_count, p.category, p.category_confidence, p.funnel_stage, p.scraped_at,
+               p.view_count, p.category, p.category_confidence, p.funnel_stage, p.message_attribute, p.scraped_at,
                c.name AS competitor_name, c.instagram_handle, c.is_own_brand,
                array_agg(cg.group_name) AS groups
         FROM posts p
@@ -84,7 +84,7 @@ def load_homepage_snapshots() -> pd.DataFrame:
     df = pd.read_sql(
         """
         SELECT h.id, h.competitor_id, h.captured_at, h.changed, h.theme, h.theme_confidence,
-               h.funnel_stage, c.name AS competitor_name, c.is_own_brand
+               h.funnel_stage, h.message_attribute, c.name AS competitor_name, c.is_own_brand
         FROM homepage_snapshots h
         JOIN competitors c ON c.id = h.competitor_id
         ORDER BY h.competitor_id, h.captured_at
@@ -111,7 +111,7 @@ def load_ads() -> pd.DataFrame:
         """
         SELECT a.id, a.competitor_id, a.ad_url, a.creative_type,
                a.creative_video IS NOT NULL AS has_video, a.caption, a.headline,
-               a.platforms, a.start_date, a.end_date, a.is_active, a.category, a.funnel_stage,
+               a.platforms, a.start_date, a.end_date, a.is_active, a.category, a.funnel_stage, a.message_attribute,
                c.name AS competitor_name, c.is_own_brand
         FROM ads a
         JOIN competitors c ON c.id = a.competitor_id
@@ -152,7 +152,7 @@ def load_tiktok() -> pd.DataFrame:
     df = pd.read_sql(
         """
         SELECT t.id, t.competitor_id, t.video_url, t.caption, t.posted_at, t.duration_seconds,
-               t.view_count, t.like_count, t.comment_count, t.share_count, t.category, t.funnel_stage,
+               t.view_count, t.like_count, t.comment_count, t.share_count, t.category, t.funnel_stage, t.message_attribute,
                c.name AS competitor_name, c.is_own_brand
         FROM tiktok_videos t
         JOIN competitors c ON c.id = t.competitor_id
@@ -179,7 +179,7 @@ def load_youtube() -> pd.DataFrame:
     df = pd.read_sql(
         """
         SELECT y.id, y.competitor_id, y.video_url, y.title, y.caption, y.posted_at, y.duration,
-               y.video_type, y.view_count, y.like_count, y.comment_count, y.category, y.funnel_stage,
+               y.video_type, y.view_count, y.like_count, y.comment_count, y.category, y.funnel_stage, y.message_attribute,
                c.name AS competitor_name, c.is_own_brand
         FROM youtube_videos y
         JOIN competitors c ON c.id = y.competitor_id
@@ -207,7 +207,7 @@ def load_x_posts() -> pd.DataFrame:
         """
         SELECT x.id, x.competitor_id, x.post_url, x.text, x.posted_at, x.like_count,
                x.retweet_count, x.reply_count, x.quote_count, x.view_count, x.is_retweet,
-               x.category, x.funnel_stage, c.name AS competitor_name, c.is_own_brand
+               x.category, x.funnel_stage, x.message_attribute, c.name AS competitor_name, c.is_own_brand
         FROM x_posts x
         JOIN competitors c ON c.id = x.competitor_id
         ORDER BY x.posted_at DESC
@@ -223,9 +223,9 @@ def load_google_ads() -> pd.DataFrame:
     conn = get_conn()
     df = pd.read_sql(
         """
-        SELECT g.id, g.competitor_id, g.advertiser_name, g.is_own_ad, g.search_term, g.ad_format,
+        SELECT g.id, g.competitor_id, g.advertiser_name, g.is_own_ad, g.search_term, g.headline, g.ad_format,
                g.ad_url, g.first_shown, g.last_shown, g.approx_days_shown, g.is_active,
-               g.funnel_stage, c.name AS competitor_name, c.is_own_brand
+               g.funnel_stage, g.message_attribute, c.name AS competitor_name, c.is_own_brand
         FROM google_ads g
         JOIN competitors c ON c.id = g.competitor_id
         ORDER BY g.last_shown DESC

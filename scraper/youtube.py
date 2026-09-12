@@ -11,7 +11,7 @@ import os
 
 from apify_client import ApifyClient
 
-from categorize.classify import classify_caption, classify_funnel_stage
+from categorize.classify import classify_caption, classify_funnel_stage, classify_message_attribute
 from db.connection import get_conn
 from scraper.media import fetch_thumbnail
 
@@ -92,6 +92,9 @@ def capture_youtube(run_type: str = "weekly", max_results: int = 15, max_shorts:
         funnel_stage, funnel_confidence = classify_funnel_stage(
             caption or item.get("title"), category, "YouTube video"
         )
+        message_attribute, attribute_confidence = classify_message_attribute(
+            caption or item.get("title"), category, "YouTube video"
+        )
         thumbnail = fetch_thumbnail(item.get("thumbnailUrl"))
 
         with conn.cursor() as cur:
@@ -99,11 +102,12 @@ def capture_youtube(run_type: str = "weekly", max_results: int = 15, max_shorts:
                 """INSERT INTO youtube_videos (competitor_id, youtube_video_id, video_url, title,
                                                 caption, posted_at, duration, video_type, thumbnail,
                                                 view_count, like_count, comment_count, category,
-                                                category_confidence, funnel_stage, funnel_stage_confidence)
+                                                category_confidence, funnel_stage, funnel_stage_confidence,
+                                                message_attribute, message_attribute_confidence)
                    VALUES (%(competitor_id)s, %(video_id)s, %(video_url)s, %(title)s, %(caption)s,
                            %(posted_at)s, %(duration)s, %(video_type)s, %(thumbnail)s, %(view_count)s,
                            %(like_count)s, %(comment_count)s, %(category)s, %(confidence)s,
-                           %(funnel_stage)s, %(funnel_confidence)s)
+                           %(funnel_stage)s, %(funnel_confidence)s, %(message_attribute)s, %(attribute_confidence)s)
                    ON CONFLICT (youtube_video_id) DO NOTHING""",
                 {
                     "competitor_id": competitor_id,
@@ -122,6 +126,8 @@ def capture_youtube(run_type: str = "weekly", max_results: int = 15, max_shorts:
                     "confidence": confidence,
                     "funnel_stage": funnel_stage,
                     "funnel_confidence": funnel_confidence,
+                    "message_attribute": message_attribute,
+                    "attribute_confidence": attribute_confidence,
                 },
             )
         stats["videos_added"] += 1

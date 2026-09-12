@@ -10,19 +10,50 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import hashlib
 import math
+import os
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import data_loaders as dl
 import signal_data as sd
+import synthesize
 
 app = FastAPI(title="Brand Signal API")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+# Lightweight shared-password gate for this internal dashboard - not
+# hardened auth (no per-user accounts, no rate limiting), just a speed bump
+# so the app isn't wide open to anyone with the URL. The frontend shell
+# always loads; every /api/* call (except the login call itself) requires
+# the cookie set by a correct /api/login, so there's no real data without it.
+SITE_PASSWORD = os.environ.get("SITE_PASSWORD", "mavis")
+_AUTH_COOKIE = "bs_auth"
+_AUTH_TOKEN = hashlib.sha256(SITE_PASSWORD.encode()).hexdigest()
+
+
+@app.middleware("http")
+async def _require_site_password(request: Request, call_next):
+    if request.url.path == "/api/login" or not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    if request.cookies.get(_AUTH_COOKIE) != _AUTH_TOKEN:
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return await call_next(request)
+
+
+@app.post("/api/login")
+def login(payload: dict):
+    if payload.get("password") != SITE_PASSWORD:
+        raise HTTPException(401, "Incorrect password")
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(_AUTH_COOKIE, _AUTH_TOKEN, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
+    return resp
 
 CATEGORY_COMPETES = {
     "Our Brands": "portfolio",
@@ -125,23 +156,106 @@ def get_landscape():
     data = _get_data()
     gm = _groups_meta()
     categories = _all_categories()
+    category_brands = {
+        cat_name: sorted(gm.loc[gm["group_name"] == cat_name, "name"].unique())
+        for cat_name in categories
+    }
+
     out = []
-    for cat_name in categories:
-        brand_names = sorted(gm.loc[gm["group_name"] == cat_name, "name"].unique())
+    stage_output_by_category = {}
+    for cat_name, brand_names in category_brands.items():
         cp = sd.category_profile(cat_name, brand_names, data)
         if not cp["profiles"]:
             continue
+        stage_output_by_category[cat_name] = sd.category_stage_output(brand_names, data)
         out.append({
             "name": cat_name, "note": CATEGORY_NOTE.get(cat_name, ""),
             "competes": CATEGORY_COMPETES.get(cat_name, "read-across"),
             "mix": cp["mix"], "spread": cp["spread"],
+            "stage_output": stage_output_by_category[cat_name],
             "profiles": [
                 {"company": p["company"], "mix": p["mix"], "monthly_output": p["monthly_output"],
                  "total_all_time": p["total_all_time"]}
                 for p in sorted(cp["profiles"], key=lambda p: -p["total_all_time"])
             ],
         })
-    return _clean({"categories": out})
+
+    all_brand_names = sorted({n for names in category_brands.values() for n in names})
+    our_brand_names = category_brands.get("Our Brands", [])
+    other_brand_names = [n for n in all_brand_names if n not in our_brand_names]
+
+    # Industry-wide message ATTRIBUTES per stage - real classified counts
+    # (see categorize/attribute_taxonomy.py), not an AI guess from a sample.
+    # For each fixed attribute (Safety, Trust, Price, etc), what % of OUR
+    # stage output touches it vs what % of EVERYONE ELSE's does - so "we
+    # have good See content" can be checked against "but do we actually say
+    # these things as often as the market, as a share of our own output."
+    stage_themes = {}
+    for s in sd.STAGES:
+        our_breakdown = sd.stage_attribute_breakdown(our_brand_names, s["name"], data)
+        other_breakdown = sd.stage_attribute_breakdown(other_brand_names, s["name"], data)
+        stage_themes[s["name"]] = {"our": our_breakdown, "other": other_breakdown}
+
+    # Per-channel content comparison at the See stage specifically - what WE
+    # say vs what the REST OF THE MARKET says on that one channel, e.g. "on
+    # Instagram Organic we lean on X while everyone else leans on Y" -
+    # concrete content gaps instead of an abstract %Do spread.
+    channel_content = []
+    for ch in sd.CHANNELS:
+        our_ch_texts = sd.channel_stage_sample_texts(our_brand_names, ch["id"], "See", data, n_per_brand=8)
+        other_ch_texts = sd.channel_stage_sample_texts(other_brand_names, ch["id"], "See", data, n_per_brand=3)
+        if not our_ch_texts and not other_ch_texts:
+            continue
+        comparison = synthesize.channel_content_comparison(ch["name"], "See", our_ch_texts, other_ch_texts)
+        channel_content.append({
+            "channel": ch, "our_example_count": len(our_ch_texts), "other_example_count": len(other_ch_texts),
+            **comparison,
+        })
+
+    # The headline comparison: Our Brands' See-stage output (raw count, not
+    # %) against the highest-output competitor group, and Our Brands' Do%
+    # against the average of every other group - the numbers behind "we
+    # have decent See content but post so little of it that it gets drowned
+    # out, while running Do-heavy compared to the rest of the market".
+    our_stage_output = stage_output_by_category.get("Our Brands", {"See": 0, "Think": 0, "Do": 0})
+    other_categories = [c for c in out if c["name"] != "Our Brands"]
+    max_see_category = max(other_categories, key=lambda c: c["stage_output"]["See"], default=None)
+    our_mix = next((c["mix"] for c in out if c["name"] == "Our Brands"), [0, 0, 0])
+    other_do_avg = round(sum(c["mix"][2] for c in other_categories) / len(other_categories)) if other_categories else None
+
+    insights = {
+        "our_see_output_90d": our_stage_output["See"],
+        "max_competitor_see_output_90d": max_see_category["stage_output"]["See"] if max_see_category else None,
+        "max_competitor_see_category": max_see_category["name"] if max_see_category else None,
+        "our_do_pct": our_mix[2],
+        "other_categories_avg_do_pct": other_do_avg,
+    }
+
+    return _clean({"categories": out, "channel_content": channel_content, "stage_themes": stage_themes, "insights": insights})
+
+
+def _attach_synthesis(name: str, r: dict, data: dict) -> dict:
+    """Adds stage_summaries + an enriched read_line to one channel_data dict,
+    via a cached Claude call - skipped entirely for channels with no content
+    so an unused channel never costs a call."""
+    if r["total_all_time"] == 0:
+        r["stage_summaries"] = None
+        r["read_line"] = None
+        return r
+    examples = sd.stage_examples_for_synthesis(name, r["channel"]["id"], data)
+    dom_idx = sd.dominant_idx(r["split"])
+    result = synthesize.channel_synthesis(
+        name, r["channel"]["name"], r["split"][dom_idx], sd.STAGES[dom_idx]["name"], examples,
+    )
+    r["stage_summaries"] = {"See": result["see"], "Think": result["think"], "Do": result["do"]}
+    read_line = result["read_line"]
+    # volume is the 90-day count - total_all_time > 0 but volume == 0 means
+    # this channel has real history but has gone quiet, which the read must
+    # say up front rather than describing dead activity as if it's current.
+    if r["volume"] == 0:
+        read_line = f"No posts here in the last 90 days. Historically: {read_line}"
+    r["read_line"] = read_line
+    return r
 
 
 @app.get("/api/brand/{name}")
@@ -151,23 +265,27 @@ def get_brand(name: str):
         raise HTTPException(404, f"Unknown brand: {name}")
     profile = sd.company_profile(name, data)
     rows = [{k: v for k, v in r.items() if k not in ("_sub", "_date_col")} for r in profile["rows"]]
+    rows = [_attach_synthesis(name, r, data) for r in rows]
     lead_id = profile["lead"]["channel"]["id"]
+    positioning = synthesize.brand_positioning(name, sd.brand_sample_texts(name, data))
     return _clean({
         "company": name, "category": _brand_category(name), "mix": profile["mix"],
         "total_all_time": profile["total_all_time"], "monthly_output": profile["monthly_output"],
-        "active_channels": profile["active_channels"], "consistency": profile["consistency"],
-        "lead_channel_id": lead_id, "rows": rows,
+        "active_channels": profile["active_channels"],
+        "lead_channel_id": lead_id, "lead_is_recent": profile["lead_is_recent"], "rows": rows,
+        "tagline": positioning["tagline"], "positioning": positioning["positioning"],
     })
 
 
 @app.get("/api/brand/{name}/channel/{channel_id}")
-def get_channel(name: str, channel_id: str, n_creatives: int = 8):
+def get_channel(name: str, channel_id: str, n_creatives: int = 8, type_filter: str = ""):
     data = _get_data()
     if channel_id not in sd.CHANNEL_BY_ID:
         raise HTTPException(404, f"Unknown channel: {channel_id}")
     r = sd.channel_data(name, channel_id, data)
     r = {k: v for k, v in r.items() if k not in ("_sub", "_date_col")}
-    creatives = sd.creative_rows(name, channel_id, data, n_creatives, dl.LOADERS)
+    r = _attach_synthesis(name, r, data)
+    creatives = sd.creative_rows(name, channel_id, data, n_creatives, dl.LOADERS, type_filter=type_filter or None)
     return _clean({"channel_data": r, "creatives": creatives})
 
 
@@ -184,24 +302,34 @@ def get_category(name: str, focus_brand: str = ""):
 
     channel_rows = []
     for ch in sd.CHANNELS:
-        rs_active = [r for r in (sd.channel_data(n, ch["id"], data) for n in brand_names) if r["total_all_time"] > 0]
+        all_rows = [sd.channel_data(n, ch["id"], data) for n in brand_names]
+        used_rows = [r for r in all_rows if sd.is_channel_active(r)]
+        rs_active = [r for r in all_rows if r["total_all_time"] > 0]
         if not rs_active:
             continue
-        avg_vol = round(sum(r["volume"] for r in rs_active) / len(rs_active))
+        # Popularity/adoption: how many brands in the category actually run
+        # this channel (by the same "active" bar used everywhere else), not
+        # just how many have ever posted on it once.
+        total_volume_90 = sum(r["volume"] for r in all_rows)
         mix = [round(sum(r["split"][i] for r in rs_active) / len(rs_active)) for i in range(3)]
         mix[2] = 100 - mix[0] - mix[1]
-        seen, msgs = set(), []
-        for r in rs_active:
-            for s in sd.STAGES:
-                for m in r["messages"].get(s["name"], []):
-                    if m not in seen:
-                        seen.add(m)
-                        msgs.append({"text": m, "color": s["color"]})
-        channel_rows.append({"channel": ch, "avg_volume": avg_vol, "mix": mix, "messages": msgs[:5]})
+        sample_texts = sd.category_channel_sample_texts(brand_names, ch["id"], data)
+        themes = synthesize.category_channel_themes(name, ch["name"], sample_texts)
+        channel_rows.append({
+            "channel": ch, "mix": mix,
+            "brands_using": len(used_rows), "brands_total": len(brand_names),
+            "total_volume_90": total_volume_90, "avg_volume": round(total_volume_90 / len(brand_names), 1),
+            "themes": themes,
+        })
+    channel_rows.sort(key=lambda cr: -cr["brands_using"])
+
+    # Real classified attribute counts for this category's own stage output
+    # (no our-vs-other split needed here - it's already scoped to one group).
+    stage_themes = {s["name"]: sd.stage_attribute_breakdown(brand_names, s["name"], data) for s in sd.STAGES}
 
     return _clean({
         "name": name, "note": CATEGORY_NOTE.get(name, ""), "competes": CATEGORY_COMPETES.get(name, "read-across"),
-        "mix": cp["mix"], "spread": cp["spread"],
+        "mix": cp["mix"], "spread": cp["spread"], "stage_themes": stage_themes,
         "outliers": [
             {"company": o["company"], "mix": o["mix"]} for o in cp["outliers"]
         ],
@@ -223,16 +351,23 @@ def get_compare(a: str, b: str):
     pa, pb = sd.company_profile(a, data), sd.company_profile(b, data)
 
     def _profile_summary(p, name):
+        lead = p["lead"]
         return {
             "company": name, "category": _brand_category(name), "mix": p["mix"],
             "monthly_output": p["monthly_output"], "active_channels": p["active_channels"],
-            "consistency": p["consistency"], "lead_channel_name": p["lead"]["channel"]["name"],
+            "lead_channel_name": lead["channel"]["name"], "lead_channel_unit": lead["channel"]["unit"],
+            "lead_channel_id": lead["channel"]["id"],
+            "lead_channel_volume": lead["volume"], "lead_channel_engagement": lead["recent_engagement"],
+            "lead_is_recent": p["lead_is_recent"],
         }
 
     rows = []
     for ch in sd.CHANNELS:
         ra, rb = sd.channel_data(a, ch["id"], data), sd.channel_data(b, ch["id"], data)
-        if ra["total_all_time"] == 0 and rb["total_all_time"] == 0:
+        # Only compare channels at least one brand is actively running today
+        # (same bar as "active channels" everywhere else) - a channel neither
+        # brand has touched in months just adds noise to a head-to-head read.
+        if not (sd.is_channel_active(ra) or sd.is_channel_active(rb)):
             continue
         rows.append({
             "channel": ch,

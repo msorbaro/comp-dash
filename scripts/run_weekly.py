@@ -9,7 +9,7 @@ import argparse
 import datetime as dt
 import pathlib
 
-from categorize.classify import classify_pending_funnel_stage, classify_pending_posts
+from categorize.classify import classify_pending_funnel_stage, classify_pending_message_attribute, classify_pending_posts
 from scraper.ads import capture_ads
 from scraper.google_ads import capture_google_ads
 from scraper.homepage import capture_homepages
@@ -39,6 +39,7 @@ def main():
     ingest_stats = _safe("instagram ingest", ingest_new_posts, run_type=run_type)
     classify_stats = _safe("categorization", classify_pending_posts, batch_size=2000)
     funnel_stats = _safe("funnel stage classification", classify_pending_funnel_stage, batch_size=2000)
+    attribute_stats = _safe("message attribute classification", classify_pending_message_attribute, batch_size=2000)
     homepage_stats = _safe("homepage capture", capture_homepages, run_type=run_type)
     ads_stats = _safe("ads capture", capture_ads, run_type=run_type)
     tiktok_stats = _safe("tiktok capture", capture_tiktok, run_type=run_type)
@@ -59,6 +60,7 @@ def main():
         f"- Posts categorized this run: {classify_stats.get('classified', '—')} "
         f"(errors: {classify_stats.get('errors', '—')})",
         f"- Posts assigned a funnel stage: {funnel_stats.get('classified', '—')}",
+        f"- Posts assigned a message attribute: {attribute_stats.get('classified', '—')}",
         "",
         "## Website homepage tracker",
         f"- Competitors checked: {homepage_stats.get('competitors_scraped', '—')}",

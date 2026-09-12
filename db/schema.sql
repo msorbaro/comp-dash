@@ -206,6 +206,27 @@ ALTER TABLE homepage_snapshots ADD COLUMN IF NOT EXISTS funnel_stage TEXT;
 ALTER TABLE homepage_snapshots ADD COLUMN IF NOT EXISTS funnel_stage_confidence TEXT;
 
 -- ============================================================================
+-- Message attribute: the underlying value proposition a piece of content
+-- leans on (Safety, Trust, Price, etc - see categorize/attribute_taxonomy.py),
+-- a real classified dimension so "how much of our See content is about
+-- Safety vs. the market" is a real count, not a sampled AI estimate.
+-- ============================================================================
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS message_attribute TEXT;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS message_attribute_confidence TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS message_attribute TEXT;
+ALTER TABLE ads ADD COLUMN IF NOT EXISTS message_attribute_confidence TEXT;
+ALTER TABLE tiktok_videos ADD COLUMN IF NOT EXISTS message_attribute TEXT;
+ALTER TABLE tiktok_videos ADD COLUMN IF NOT EXISTS message_attribute_confidence TEXT;
+ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS message_attribute TEXT;
+ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS message_attribute_confidence TEXT;
+ALTER TABLE x_posts ADD COLUMN IF NOT EXISTS message_attribute TEXT;
+ALTER TABLE x_posts ADD COLUMN IF NOT EXISTS message_attribute_confidence TEXT;
+ALTER TABLE homepage_snapshots ADD COLUMN IF NOT EXISTS message_attribute TEXT;
+ALTER TABLE homepage_snapshots ADD COLUMN IF NOT EXISTS message_attribute_confidence TEXT;
+ALTER TABLE google_ads ADD COLUMN IF NOT EXISTS message_attribute TEXT;
+ALTER TABLE google_ads ADD COLUMN IF NOT EXISTS message_attribute_confidence TEXT;
+
+-- ============================================================================
 -- Google Search Ads (Google Ads Transparency Center) - both a competitor's own
 -- search ads AND any OTHER advertiser conquesting on their brand/domain terms.
 -- ============================================================================
@@ -216,6 +237,7 @@ CREATE TABLE IF NOT EXISTS google_ads (
     advertiser_name          TEXT,
     is_own_ad                BOOLEAN NOT NULL DEFAULT TRUE,
     search_term              TEXT,
+    headline                 TEXT, -- the ad's own visible headline/offer, read via vision - NOT the advertiser's real bid keyword (Google never exposes that)
     ad_format                TEXT,
     ad_url                   TEXT,
     image_url                TEXT,

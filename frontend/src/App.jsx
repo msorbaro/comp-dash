@@ -13,6 +13,7 @@ export default function App() {
   const [screen, setScreen] = useState('landscape')
   const [brand, setBrand] = useState(null)
   const [channelId, setChannelId] = useState(null)
+  const [channelTypeFilter, setChannelTypeFilter] = useState(null)
   const [category, setCategory] = useState(null)
   const [compareA, setCompareA] = useState(null)
   const [compareB, setCompareB] = useState(null)
@@ -39,7 +40,9 @@ export default function App() {
     window.scrollTo(0, 0)
   }
   const openBrand = (name) => { setBrand(name); goto('brand') }
-  const openChannel = (id) => { setChannelId(id); setScreen('channel'); window.scrollTo(0, 0) }
+  const openChannel = (id, typeFilter = null) => {
+    setChannelId(id); setChannelTypeFilter(typeFilter); setScreen('channel'); window.scrollTo(0, 0)
+  }
   const openCategory = (name) => { setCategory(name); goto('category') }
 
   return (
@@ -61,6 +64,7 @@ export default function App() {
           <Channel
             brand={brand} category={meta.brands.find((b) => b.name === brand)?.category}
             channelId={channelId} onBack={() => goto('brand')}
+            initialTypeFilter={channelTypeFilter}
           />
         )}
         {screen === 'category' && (

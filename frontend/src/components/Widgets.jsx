@@ -171,18 +171,35 @@ function QuoteCard({ cr, big }) {
   )
 }
 
-export function CreativeCard({ cr, big = false }) {
+// Meta ads get a lightweight IG/FB-style header (avatar + brand + Sponsored)
+// so the card reads like a real ad unit, not a generic bordered thumbnail.
+function MetaAdHeader({ brand }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 10px', borderBottom: `1px solid ${SLATE_200}` }}>
+      <div style={{
+        width: 22, height: 22, borderRadius: '50%', flex: 'none',
+        background: 'linear-gradient(135deg,#0F7A84,#22B8C4)', color: '#fff',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700,
+      }}>
+        {(brand || '?')[0]}
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: INK_TEXT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{brand}</div>
+        <div style={{ fontSize: 8.5, color: MUTED }}>Sponsored</div>
+      </div>
+    </div>
+  )
+}
+
+export function CreativeCard({ cr, big = false, brand = null }) {
   if (cr.shape === 'quote') return <QuoteCard cr={cr} big={big} />
 
   const mediaH = MEDIA_HEIGHT[cr.shape] || 190
   const isVideo = !!(cr.video_url || cr.embed_html)
+  const isMetaAd = cr.channel_id === 'meta_ads'
   return (
     <div style={{ border: `1px solid ${SLATE_200}`, borderRadius: 10, overflow: 'hidden', background: '#FBFCFD' }}>
-      {cr.search_term && (
-        <div style={{ fontSize: 9.5, color: SLATE_600, padding: '7px 10px', borderBottom: `1px solid ${SLATE_200}`, background: '#F8FAFC' }}>
-          Bidding on <b style={{ color: INK_TEXT }}>&ldquo;{cr.search_term}&rdquo;</b>
-        </div>
-      )}
+      {isMetaAd && <MetaAdHeader brand={brand} />}
       <div style={{ position: 'relative', height: mediaH, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `1px solid ${SLATE_200}`, background: cr.image ? '#F1F5F9' : 'repeating-linear-gradient(135deg,#EEF2F6 0 7px,#E4EAF1 7px 14px)' }}>
         {cr.image ? (
           <img src={cr.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
@@ -201,10 +218,14 @@ export function CreativeCard({ cr, big = false }) {
         )}
       </div>
       <div style={{ padding: big ? '12px 13px 13px' : '10px 11px 11px' }}>
+        {isMetaAd && cr.why ? (
+          <div style={{ fontSize: big ? 12 : 11, fontWeight: 600, color: INK_TEXT, lineHeight: 1.35, marginBottom: 6 }}>{cr.why}</div>
+        ) : (
+          <div style={{ fontSize: big ? 11 : 10.5, color: INK_TEXT, lineHeight: 1.4 }}>{cr.why}</div>
+        )}
         <div style={{ display: 'inline-block', fontSize: 9.5, fontWeight: 600, letterSpacing: '.06em', color: SLATE_600, background: '#F1F5F9', borderRadius: 4, padding: '3px 7px' }}>
           {cr.type || '—'}
         </div>
-        <div style={{ fontSize: big ? 11 : 10.5, color: INK_TEXT, lineHeight: 1.4, marginTop: 7 }}>{cr.why}</div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 9, fontSize: 9.5, color: MUTED, fontFamily: MONO }}>
           <span>{cr.engagement != null ? `${fmtNum(cr.engagement)} eng.` : '—'}</span>
           <span>{cr.date}</span>

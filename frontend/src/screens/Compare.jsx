@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ContextBar from '../components/ContextBar'
 import { SectionNumber, StageBar, MixCaption, TableHead, RowDivider } from '../components/Widgets'
-import { fmtNum, verdict, MUTED, INK, SLATE_200, SLATE_600, SLATE_400, TEAL, TEAL_700, TRACK } from '../styles'
+import { fmtNum, verdict, engagementUnitLabel, MUTED, INK, SLATE_200, SLATE_600, SLATE_400, TEAL, TEAL_700, TRACK } from '../styles'
 
 export default function Compare({ meta, brandA, brandB, onBrandAChange, onBrandBChange }) {
   const [data, setData] = useState(null)
@@ -56,7 +56,6 @@ export default function Compare({ meta, brandA, brandB, onBrandAChange, onBrandB
                     {[
                       ['OUTPUT / MO', fmtNum(p.monthly_output)],
                       ['CHANNELS', `${p.active_channels}/7`],
-                      ['CONSISTENCY', p.consistency != null ? String(p.consistency) : '—'],
                     ].map(([lbl, val]) => (
                       <div key={lbl}>
                         <div style={{ fontSize: 9, letterSpacing: '.12em', fontWeight: 600, color: dark ? SLATE_400 : MUTED }}>{lbl}</div>
@@ -65,7 +64,10 @@ export default function Compare({ meta, brandA, brandB, onBrandAChange, onBrandB
                     ))}
                   </div>
                   <div style={{ fontSize: 11.5, lineHeight: 1.45, marginTop: 15, color: dark ? '#C7CED9' : SLATE_600 }}>
-                    {verdict(p.mix)}. Heaviest channel: {p.lead_channel_name}.
+                    {verdict(p.mix)}. {p.lead_is_recent ? 'Most active channel' : 'Historically highest-volume channel'}: {p.lead_channel_name}
+                    {p.lead_is_recent && ` — ${p.lead_channel_volume} ${p.lead_channel_unit} in the last 90 days`}
+                    {p.lead_is_recent && p.lead_channel_engagement != null && !['not tracked', 'n/a'].includes(engagementUnitLabel(p.lead_channel_id))
+                      && `, averaging ${fmtNum(p.lead_channel_engagement)} ${engagementUnitLabel(p.lead_channel_id)} recently`}.
                   </div>
                 </div>
               )
