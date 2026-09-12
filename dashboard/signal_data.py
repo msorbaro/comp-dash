@@ -189,6 +189,11 @@ def mix_label(mix: list) -> str:
 
 def company_profile(name: str, data: dict) -> dict:
     rows = [channel_data(name, ch["id"], data) for ch in CHANNELS]
+    total_volume_90 = sum(r["volume"] for r in rows)
+    max_volume_90 = max((r["volume"] for r in rows), default=0)
+    for r in rows:
+        r["share"] = round(r["volume"] / total_volume_90 * 100) if total_volume_90 else None
+        r["vol_bar_pct"] = round(r["volume"] / max_volume_90 * 100) if max_volume_90 else 0
     total_all_time = sum(r["total_all_time"] for r in rows)
     weighted = [0.0, 0.0, 0.0]
     for r in rows:

@@ -90,26 +90,52 @@ st.markdown(f"""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
     html, body, [class*="css"] {{ font-family: Poppins, system-ui, sans-serif; }}
-    body {{ background: {CANVAS}; }}
-    .block-container {{ padding-top: 0.8rem; padding-bottom: 3rem; max-width: 1440px; }}
+    html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {{ background: {CANVAS} !important; }}
+    .block-container {{ padding-top: 92px; padding-bottom: 3rem; padding-left: 32px; padding-right: 32px; max-width: 1440px; margin: 0 auto; }}
     a {{ color: {TEAL_700}; text-decoration: none; }}
     a:hover {{ color: {TEAL}; }}
     ::selection {{ background: #D5EFF1; }}
+    hr {{ margin: 0; border: none; border-top: 1px solid {ROW_LINE}; }}
 
     [data-testid="stMetricValue"] {{ font-size: 1.5rem; color: {INK_TEXT}; font-weight: 600; }}
     [data-testid="stMetric"] {{ background: {SURFACE}; border: 1px solid {SLATE_200}; border-radius: 10px;
                                   padding: 0.8rem 0.9rem 0.5rem 0.9rem; }}
 
-    /* Dark ink top nav bar */
-    .st-key-topnav {{ background: {INK}; border-radius: 12px; padding: 10px 18px; margin-bottom: 14px; }}
+    /* Dark ink top nav bar - fixed, full viewport width, independent of the
+       centered/max-width content column beneath it. */
+    .st-key-topnav {{
+        position: fixed; top: 0; left: 0; right: 0; width: 100%; z-index: 999;
+        background: {INK}; padding: 0 32px; box-sizing: border-box;
+        display: flex; align-items: center; height: 72px;
+        border-bottom: 1px solid #253039;
+    }}
+    .st-key-topnav [data-testid="stHorizontalBlock"] {{ align-items: center; width: 100%; }}
+    .st-key-topnav div[data-testid="stPills"] {{ display: flex; justify-content: flex-end; }}
     .st-key-topnav div[data-testid="stPills"] button {{
-        font-family: Poppins, sans-serif !important; font-weight: 500; border-radius: 7px !important;
-        color: #C7CED9 !important; border: none !important; background: transparent !important;
+        font-family: Poppins, sans-serif !important; font-weight: 500 !important; font-size: 13.5px !important;
+        border-radius: 7px !important; color: #C7CED9 !important; border: none !important;
+        background: transparent !important; padding: 8px 14px !important;
     }}
     .st-key-topnav div[data-testid="stPills"] button[aria-pressed="true"] {{
         background: {TEAL} !important; color: {INK} !important; font-weight: 600 !important;
     }}
     .st-key-topnav div[data-testid="stPills"] label {{ display: none; }}
+    .st-key-topnav .stButton button {{
+        background: transparent !important; border: none !important; color: {SLATE_400} !important;
+        font-size: 11px !important;
+    }}
+
+    /* Scope/context bar directly under the fixed header */
+    .st-key-ctxbar {{
+        background: {SURFACE}; border: 1px solid {SLATE_200}; border-radius: 10px;
+        padding: 10px 16px 2px 16px; margin-bottom: 18px;
+    }}
+    .st-key-ctxbar [data-testid="stHorizontalBlock"] {{ align-items: center; }}
+    .bs-scope-chip {{
+        font-size: 9.5px; letter-spacing: .13em; font-weight: 600; color: {DEEP_TEAL};
+        background: {TEAL_WASH}; border: 1px solid #CFE9EC; border-radius: 5px; padding: 5px 9px;
+        white-space: nowrap; display: inline-block;
+    }}
 
     /* Category chip pills (st.pills, multi-look single-select) */
     .st-key-catchips div[data-testid="stPills"] button {{
@@ -127,14 +153,39 @@ st.markdown(f"""
 
     [data-testid="stVerticalBlockBorderWrapper"] {{ border-radius: 12px !important; }}
 
+    /* Table-style rows (category index, channel summary, comparisons): thin
+       divider between rows, no per-row box - matches the report export exactly. */
+    .bs-row-divider {{ height: 1px; background: {ROW_LINE}; margin: 13px 0; }}
+    .bs-table-head {{ font-size: 9.5px; letter-spacing: .1em; color: {MUTED}; font-weight: 600;
+                       padding-bottom: 9px; border-bottom: 1px solid {SLATE_200}; margin-bottom: 4px; }}
+
+    .bs-section-num {{ font-size: 11px; letter-spacing: .15em; color: {MUTED}; font-weight: 600; }}
     .bs-eyebrow {{ font-size: 10px; letter-spacing: .16em; color: {TEAL_700}; font-weight: 600; }}
     .bs-h1 {{ margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -.025em; line-height: 1.12; }}
     .bs-body {{ font-size: 13px; color: {SLATE_600}; line-height: 1.5; }}
     .bs-card {{ background: {SURFACE}; border: 1px solid {SLATE_200}; border-radius: 12px; padding: 20px 22px; }}
     .bs-ink-panel {{ background: {INK}; border-radius: 13px; padding: 24px 26px; color: #FFFFFF; }}
     .bs-mono {{ font-family: {MONO}; }}
+
+    /* "Plain link" buttons: a brand/category name that navigates on click but
+       reads as bold text, not a boxed button. */
+    .st-key-landscape_list .stButton button {{
+        background: transparent !important; border: none !important; padding: 0 !important;
+        box-shadow: none !important; font-weight: 600 !important; font-size: 12px !important;
+        color: {INK_TEXT} !important; text-align: left !important; justify-content: flex-start !important;
+        min-height: 0 !important; height: auto !important; width: auto !important;
+    }}
+    .st-key-landscape_list .stButton button:hover {{ color: {TEAL_700} !important; text-decoration: underline; }}
 </style>
 """, unsafe_allow_html=True)
+
+
+def section_number(num: str, title: str) -> str:
+    return (f'<div class="bs-section-num">{num} · {title.upper()}</div>')
+
+
+def table_row_divider():
+    st.markdown('<div class="bs-row-divider"></div>', unsafe_allow_html=True)
 
 
 # ============================================================================
@@ -583,27 +634,54 @@ def open_channel(channel_id: str):
     st.rerun()
 
 
-# ---- Header ----
-st.markdown(
-    f'<div style="display:flex;align-items:center;gap:9px;margin:2px 0 12px 4px">'
-    f'<div style="width:9px;height:9px;border-radius:50%;background:{TEAL}"></div>'
-    f'<div style="font-size:12.5px;font-weight:600;letter-spacing:.14em;color:{INK}">BRAND SIGNAL</div>'
-    f'<div style="font-size:10px;color:{MUTED};letter-spacing:.1em;padding-left:8px;border-left:1px solid {SLATE_200}">'
-    f'COMPETITIVE MARKETING INTELLIGENCE</div></div>',
-    unsafe_allow_html=True,
-)
+def render_context_bar(scope_label: str, note: str, show_picker: bool = False, crumb: str = None):
+    """The bordered white bar directly under the header: a scope chip, an
+    optional brand picker or breadcrumb, and a right-aligned note - present
+    on every screen in the design."""
+    with st.container(key="ctxbar"):
+        chip_col, mid_col, note_col = st.columns([1.5, 2.3, 3.4])
+        with chip_col:
+            st.markdown(f'<div class="bs-scope-chip">{scope_label}</div>', unsafe_allow_html=True)
+        with mid_col:
+            if show_picker:
+                lbl_col, sel_col = st.columns([1, 2])
+                with lbl_col:
+                    st.markdown(f'<div style="font-size:11px;color:{MUTED};padding-top:9px;white-space:nowrap">Brand in focus</div>',
+                                unsafe_allow_html=True)
+                with sel_col:
+                    st.selectbox("Brand", ALL_BRAND_NAMES, key="nav_brand",
+                                 format_func=brand_option_label, label_visibility="collapsed")
+            elif crumb:
+                st.markdown(f'<div style="font-size:11.5px;color:{MUTED};padding-top:9px">{crumb}</div>', unsafe_allow_html=True)
+        with note_col:
+            st.markdown(f'<div style="font-size:11.5px;color:{SLATE_600};text-align:right;line-height:1.4;padding-top:7px">{note}</div>',
+                        unsafe_allow_html=True)
 
+
+SCREEN_TAB_LABELS = {
+    "Landscape": "Landscape", "Brand": "Brand deep dive",
+    "Category": "Category rollup", "Compare": "Head to head",
+}
+
+# ---- Header: one fixed dark bar - brand mark on the left, tabs on the right ----
 with st.container(key="topnav"):
-    nav_col, refresh_col = st.columns([5, 1])
-    with nav_col:
+    brand_col, tabs_col = st.columns([1.3, 3])
+    with brand_col:
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:12px;height:100%">'
+            f'<div style="width:9px;height:9px;border-radius:50%;background:{TEAL};flex:none"></div>'
+            f'<div style="font-size:13px;font-weight:700;letter-spacing:.06em;color:#FFFFFF;line-height:1.25">BRAND<br/>SIGNAL</div>'
+            f'<div style="width:1px;align-self:stretch;background:#334155;margin:14px 0"></div>'
+            f'<div style="font-size:9.5px;font-weight:600;letter-spacing:.1em;color:{SLATE_400};line-height:1.5">'
+            f'COMPETITIVE MARKETING<br/>INTELLIGENCE</div></div>',
+            unsafe_allow_html=True,
+        )
+    with tabs_col:
         screen = st.pills(
             "nav", ["Landscape", "Brand", "Category", "Compare"],
             key="nav_screen", default="Landscape", label_visibility="collapsed",
+            format_func=lambda s: SCREEN_TAB_LABELS[s],
         )
-    with refresh_col:
-        if st.button("🔄 Refresh", key="refresh_btn", width="stretch"):
-            st.cache_data.clear()
-            st.rerun()
 screen = screen or "Landscape"
 # "Channel" is a sub-view of Brand (reached by drilling into a channel row),
 # not a tab of its own - nav_screen must always stay one of the 4 pill
@@ -611,15 +689,25 @@ screen = screen or "Landscape"
 # 5th screen value.
 viewing_channel = screen == "Brand" and st.session_state.get("viewing_channel", False)
 
-if last_run is not None:
-    st.caption(f"Data current as of {last_run['run_date']:%b %d, %Y · %H:%M UTC} "
-               f"· {last_run['run_type']} run · status: {last_run['status']}")
+cap_col, refresh_col = st.columns([6, 1])
+with cap_col:
+    if last_run is not None:
+        st.caption(f"Data current as of {last_run['run_date']:%b %d, %Y · %H:%M UTC} "
+                   f"· {last_run['run_type']} run · status: {last_run['status']}")
+with refresh_col:
+    if st.button("↻ Refresh", key="refresh_btn"):
+        st.cache_data.clear()
+        st.rerun()
 
 
 # ============================================================================
 # SCREEN: LANDSCAPE — every category, every brand, See/Think/Do at a glance
 # ============================================================================
 if screen == "Landscape":
+    render_context_bar(
+        "SCOPE · ALL BRANDS",
+        "Every tracked brand and category. Click a brand to open its deep dive, or a category name for the rollup.",
+    )
     cat_profiles = {c: sd.category_profile(c, sorted(groups_meta.loc[groups_meta["group_name"] == c, "name"].unique()), DATA)
                      for c in ALL_CATEGORIES}
     ours = cat_profiles.get("Our Brands")
@@ -627,6 +715,7 @@ if screen == "Landscape":
     see_sorted = sorted(cat_profiles.items(), key=lambda kv: kv[1]["mix"][0], reverse=True)
     do_sorted = sorted(cat_profiles.items(), key=lambda kv: kv[1]["mix"][2], reverse=True)
 
+    st.markdown(section_number("01", "The Landscape"), unsafe_allow_html=True)
     col_head, col_legend = st.columns([2.2, 1])
     with col_head:
         st.markdown(
@@ -658,17 +747,16 @@ if screen == "Landscape":
         stat_cols[3].markdown(stat_card("MOST DO-WEIGHTED", f"{top_do['mix'][2]}%", f"{top_do_name} runs hardest at intent"), unsafe_allow_html=True)
         st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
-    for cat_name in ALL_CATEGORIES:
-        cp = cat_profiles[cat_name]
-        if not cp["profiles"]:
-            continue
-        with st.container(border=True):
-            rail_col, mix_col, brands_col = st.columns([1.1, 1.0, 2.2])
+    active_categories = [c for c in ALL_CATEGORIES if cat_profiles[c]["profiles"]]
+    with st.container(key="landscape_list", border=True):
+        for idx, cat_name in enumerate(active_categories):
+            cp = cat_profiles[cat_name]
+            rail_col, mix_col, brands_col = st.columns([1.1, 1.0, 2.6])
             with rail_col:
                 if st.button(cat_name, key=f"land_open_{cat_name}"):
                     goto("Category", category=cat_name)
                 st.markdown(
-                    f'<div style="font-size:11px;color:{MUTED};margin-top:-8px;line-height:1.35">{CATEGORY_NOTE.get(cat_name, "")}</div>'
+                    f'<div style="font-size:11px;color:{MUTED};margin-top:-6px;line-height:1.35">{CATEGORY_NOTE.get(cat_name, "")}</div>'
                     + competes_badge(CATEGORY_COMPETES.get(cat_name, "read-across")),
                     unsafe_allow_html=True,
                 )
@@ -679,29 +767,37 @@ if screen == "Landscape":
                 spread_note = f"See-share spread across brands: {cp['spread'][0]}pts"
                 st.markdown(f'<div style="font-size:10.5px;color:{MUTED};margin-top:5px">{spread_note}</div>', unsafe_allow_html=True)
             with brands_col:
-                sub_names = sorted(cp["profiles"], key=lambda p: -p["total_all_time"])[:6]
-                mini_cols = st.columns(min(3, max(1, len(sub_names))))
-                for i, p in enumerate(sub_names):
-                    with mini_cols[i % len(mini_cols)]:
-                        st.markdown(
-                            f'<div style="font-size:11px;font-weight:500;line-height:1.25">{p["company"]}</div>'
-                            + stage_bar(p["mix"], height=6, radius=3)
-                            + f'<div style="font-size:9.5px;color:{MUTED};font-family:{MONO}">{fmt_num(p["monthly_output"])}/mo</div>',
-                            unsafe_allow_html=True,
-                        )
-                        if st.button("open →", key=f"land_brand_{cat_name}_{p['company']}"):
-                            goto("Brand", brand=p["company"])
+                sub_names = sorted(cp["profiles"], key=lambda p: -p["total_all_time"])
+                n_cols = 5
+                for row_start in range(0, len(sub_names), n_cols):
+                    row_items = sub_names[row_start:row_start + n_cols]
+                    mini_cols = st.columns(n_cols)
+                    for i, p in enumerate(row_items):
+                        with mini_cols[i]:
+                            if st.button(p["company"], key=f"land_brand_{cat_name}_{p['company']}"):
+                                goto("Brand", brand=p["company"])
+                            st.markdown(
+                                stage_bar(p["mix"], height=6, radius=3)
+                                + f'<div style="display:flex;justify-content:space-between;font-size:9px;'
+                                  f'color:{MUTED};font-family:{MONO};margin-top:3px"><span>{fmt_num(p["monthly_output"])}/mo</span>'
+                                  f'<span>{sd.mix_label(p["mix"])}</span></div>',
+                                unsafe_allow_html=True,
+                            )
+            if idx < len(active_categories) - 1:
+                table_row_divider()
 
 # ============================================================================
 # SCREEN: BRAND — one company, every channel, top to bottom
 # ============================================================================
 elif screen == "Brand":
-    tcol, ccol = st.columns([2, 1])
-    with tcol:
-        st.markdown('<div class="bs-eyebrow" style="margin-bottom:4px">BRAND IN FOCUS</div>', unsafe_allow_html=True)
-        chosen = st.selectbox("Brand", ALL_BRAND_NAMES, key="nav_brand",
-                               format_func=brand_option_label, label_visibility="collapsed")
-    brand = chosen
+    render_context_bar(
+        "SCOPE · ONE CHANNEL" if viewing_channel else "SCOPE · ONE BRAND",
+        "One channel for the brand in focus." if viewing_channel else "This view and its channel pages show only the brand in focus.",
+        show_picker=True,
+    )
+    brand = st.session_state["nav_brand"]
+    if not viewing_channel:
+        st.markdown(section_number("02", "Brand Deep Dive"), unsafe_allow_html=True)
     profile = sd.company_profile(brand, DATA)
     cat_name = brand_category(brand)
     competes = CATEGORY_COMPETES.get(cat_name, "read-across")
@@ -753,46 +849,57 @@ elif screen == "Brand":
 
     if not viewing_channel:
         # ---- Channel summary table ----
-        st.markdown('<div class="bs-card" style="padding:0;overflow:hidden;margin-bottom:22px">', unsafe_allow_html=True)
         st.markdown(
-            f'<div style="padding:15px 18px 13px;border-bottom:1px solid {ROW_LINE}">'
-            f'<div style="font-size:13px;font-weight:600">Channel summary</div>'
-            f'<div style="font-size:11px;color:{MUTED};margin-top:3px">Scale of use, See/Think/Do split, and the '
-            f'message being carried in each stage.</div></div>',
+            f'<div style="font-size:14px;font-weight:600">Channel summary</div>'
+            f'<div style="font-size:11px;color:{MUTED};margin-top:3px;margin-bottom:14px">Scale of use, See/Think/Do split, and the '
+            f'message being carried in each stage.</div>',
             unsafe_allow_html=True,
         )
-        for r in profile["rows"]:
-            ch = r["channel"]
-            with st.container(border=True):
+        with st.container(key="brand_channel_table"):
+            head_cols = st.columns([1.3, 1.1, 1.4, 2.4, 0.9])
+            for col, label in zip(head_cols, ["CHANNEL", "SCALE OF USE", "SEE / THINK / DO", "WHAT IS SAID, BY STAGE", "AVG. ENGAGEMENT"]):
+                col.markdown(f'<div class="bs-table-head" style="border:none;padding:0;margin:0">{label}</div>', unsafe_allow_html=True)
+            st.markdown('<hr style="margin:6px 0 4px 0">', unsafe_allow_html=True)
+            for idx, r in enumerate(profile["rows"]):
+                ch = r["channel"]
                 name_col, vol_col, mix_col, msg_col, eng_col = st.columns([1.3, 1.1, 1.4, 2.4, 0.9])
                 with name_col:
                     if st.button(ch["name"], key=f"open_ch_{ch['id']}"):
                         open_channel(ch["id"])
                     st.markdown(paid_tag(ch["paid"]), unsafe_allow_html=True)
                 with vol_col:
-                    st.markdown(f'<div style="font-size:17px;font-weight:600">{r["volume"]}</div>'
-                                f'<div style="font-size:9.5px;color:{MUTED}">{ch["unit"]} / 90d</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="font-size:17px;font-weight:600">{r["volume"]}<span style="font-size:9.5px;'
+                                f'color:{MUTED};font-weight:400"> {ch["unit"]}</span></div>'
+                                + f'<div style="height:5px;border-radius:3px;background:{TRACK};margin-top:6px;overflow:hidden">'
+                                  f'<div style="height:100%;width:{r["vol_bar_pct"]}%;background:{DEEP_TEAL}"></div></div>',
+                                unsafe_allow_html=True)
                     st.markdown(trend_html(r["trend"]), unsafe_allow_html=True)
                 with mix_col:
                     st.markdown(stage_bar(r["split"]) + mix_caption(r["split"]), unsafe_allow_html=True)
                 with msg_col:
-                    stage_html = ""
-                    for s in STAGES:
+                    stage_html = '<div style="display:flex;gap:10px">'
+                    for i, s in enumerate(STAGES):
                         msgs = r["messages"].get(s["name"], [])
-                        stage_html += (f'<div style="display:inline-block;width:32%;vertical-align:top;margin-right:1%">'
-                                       f'<div style="font-size:9px;font-weight:600;letter-spacing:.06em;color:{SLATE_600}">{s["name"].upper()}</div>')
+                        stage_html += (f'<div style="flex:1;min-width:0">'
+                                       f'<div style="display:flex;align-items:center;gap:5px">'
+                                       f'<div style="width:6px;height:6px;border-radius:2px;background:{s["color"]};flex:none"></div>'
+                                       f'<div style="font-size:9px;font-weight:600;letter-spacing:.05em;color:{SLATE_600}">'
+                                       f'{s["name"].upper()} {r["split"][i]}%</div></div>')
                         if msgs:
                             for m in msgs:
                                 stage_html += f'<div style="font-size:10px;color:{INK_TEXT};line-height:1.35;margin-top:3px">{m}</div>'
                         else:
                             stage_html += f'<div style="font-size:10px;color:{MUTED};font-style:italic;margin-top:3px">no examples yet</div>'
                         stage_html += "</div>"
+                    stage_html += "</div>"
                     st.markdown(stage_html, unsafe_allow_html=True)
                 with eng_col:
                     eng_label = fmt_num(r["engagement"]) if r["engagement"] is not None else "—"
+                    share_label = f'{r["share"]}% of output' if r["share"] is not None else ""
                     st.markdown(f'<div style="text-align:right;font-size:15px;font-weight:600">{eng_label}</div>'
-                                f'<div style="text-align:right;font-size:9.5px;color:{MUTED}">avg. engagement</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+                                f'<div style="text-align:right;font-size:9.5px;color:{MUTED}">{share_label}</div>', unsafe_allow_html=True)
+                if idx < len(profile["rows"]) - 1:
+                    table_row_divider()
 
         # ---- Per-channel sections: content types, cadence, creative evidence ----
         for r in profile["rows"]:
@@ -840,6 +947,7 @@ elif screen == "Brand":
         channel_id = st.session_state.get("nav_channel") or sd.CHANNELS[0]["id"]
         r = sd.channel_data(brand, channel_id, DATA)
         ch = r["channel"]
+        st.markdown(section_number("03", "Channel Detail"), unsafe_allow_html=True)
         st.markdown(f'<span style="font-size:11px;color:{MUTED}">/ '
                     f'<a href="#" onclick="return false">{brand}</a> / <b style="color:{INK_TEXT}">{ch["name"]}</b></span>', unsafe_allow_html=True)
         if st.button("← back to all channels", key="back_to_brand"):
@@ -917,6 +1025,12 @@ elif screen == "Brand":
 # SCREEN: CATEGORY — one competitive set, every brand in it
 # ============================================================================
 elif screen == "Category":
+    _focus_cat = brand_category(st.session_state["nav_brand"])
+    render_context_bar(
+        "SCOPE · ONE CATEGORY",
+        f"Category-level rollup. The brand in focus ({st.session_state['nav_brand']}) sits in {_focus_cat} and is flagged below.",
+    )
+    st.markdown(section_number("04", "Category Rollup"), unsafe_allow_html=True)
     with st.container(key="catchips"):
         chosen_cat = st.pills("Category", ALL_CATEGORIES, key="nav_category",
                                default=ALL_CATEGORIES[0], label_visibility="collapsed")
@@ -1009,11 +1123,14 @@ elif screen == "Category":
     st.markdown(f'<div style="font-size:13px;font-weight:600;margin-bottom:3px">Channel behaviour across the category</div>'
                 f'<div style="font-size:11px;color:{MUTED};margin-bottom:14px">Average scale of use and stage weighting per channel, with the messages that recur most.</div>',
                 unsafe_allow_html=True)
-    for ch in sd.CHANNELS:
-        rs = [sd.channel_data(n, ch["id"], DATA) for n in brand_names]
-        rs_active = [r for r in rs if r["total_all_time"] > 0]
-        if not rs_active:
-            continue
+    channel_rows = [ch for ch in sd.CHANNELS
+                     if any(sd.channel_data(n, ch["id"], DATA)["total_all_time"] > 0 for n in brand_names)]
+    head_cols = st.columns([1.1, 0.9, 1.2, 2.6])
+    for col, label in zip(head_cols, ["CHANNEL", "AVG. SCALE", "AVG. SEE/THINK/DO", "RECURRING MESSAGES"]):
+        col.markdown(f'<div class="bs-table-head" style="border:none;padding:0;margin:0">{label}</div>', unsafe_allow_html=True)
+    st.markdown('<hr style="margin:6px 0 4px 0">', unsafe_allow_html=True)
+    for idx, ch in enumerate(channel_rows):
+        rs_active = [r for r in (sd.channel_data(n, ch["id"], DATA) for n in brand_names) if r["total_all_time"] > 0]
         avg_vol = round(sum(r["volume"] for r in rs_active) / len(rs_active))
         mix = [round(sum(r["split"][i] for r in rs_active) / len(rs_active)) for i in range(3)]
         mix[2] = 100 - mix[0] - mix[1]
@@ -1024,19 +1141,25 @@ elif screen == "Category":
                     if m not in seen_msgs:
                         seen_msgs.add(m)
                         msgs.append((m, s["color"]))
-        with st.container(border=True):
-            name_c, vol_c, mix_c, msg_c = st.columns([1.1, 0.9, 1.2, 2.6])
-            name_c.markdown(f'<div style="font-size:12px;font-weight:600">{ch["name"]}</div>', unsafe_allow_html=True)
-            vol_c.markdown(f'<div style="font-size:16px;font-weight:600">{avg_vol}</div><div style="font-size:9.5px;color:{MUTED}">{ch["unit"]}</div>', unsafe_allow_html=True)
-            mix_c.markdown(stage_bar(mix) + mix_caption(mix, ""), unsafe_allow_html=True)
-            msg_c.markdown("".join(message_chip(m, c) for m, c in msgs[:5]) or f'<span style="font-size:10px;color:{MUTED};font-style:italic">no examples yet</span>',
-                            unsafe_allow_html=True)
+        name_c, vol_c, mix_c, msg_c = st.columns([1.1, 0.9, 1.2, 2.6])
+        name_c.markdown(f'<div style="font-size:12px;font-weight:600">{ch["name"]}</div>', unsafe_allow_html=True)
+        vol_c.markdown(f'<div style="font-size:16px;font-weight:600">{avg_vol}</div><div style="font-size:9.5px;color:{MUTED}">{ch["unit"]}</div>', unsafe_allow_html=True)
+        mix_c.markdown(stage_bar(mix) + mix_caption(mix, ""), unsafe_allow_html=True)
+        msg_c.markdown("".join(message_chip(m, c) for m, c in msgs[:5]) or f'<span style="font-size:10px;color:{MUTED};font-style:italic">no examples yet</span>',
+                        unsafe_allow_html=True)
+        if idx < len(channel_rows) - 1:
+            table_row_divider()
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================================
 # SCREEN: COMPARE — two brands, head to head
 # ============================================================================
 else:  # Compare
+    render_context_bar(
+        "SCOPE · TWO BRANDS",
+        "Side A is the brand in focus. Change either side to re-run the comparison.",
+    )
+    st.markdown(section_number("05", "Head to Head"), unsafe_allow_html=True)
     a_col, vs_col, b_col = st.columns([2, 0.6, 2])
     with a_col:
         st.markdown(f'<div style="font-size:10px;letter-spacing:.15em;color:{TEAL_700};font-weight:600">SIDE A · BRAND IN FOCUS</div>', unsafe_allow_html=True)
@@ -1082,14 +1205,19 @@ else:  # Compare
                 unsafe_allow_html=True,
             )
 
-    st.markdown('<div class="bs-card" style="margin-top:14px">', unsafe_allow_html=True)
+    st.markdown('<div style="margin-top:20px">', unsafe_allow_html=True)
     st.markdown(f'<div style="font-size:13px;font-weight:600;margin-bottom:3px">Where they diverge</div>'
                 f'<div style="font-size:11px;color:{MUTED};margin-bottom:16px">Channel by channel: scale of use, stage weighting, and the gap worth acting on.</div>',
                 unsafe_allow_html=True)
-    for ch in sd.CHANNELS:
+    compare_rows = [ch for ch in sd.CHANNELS
+                     if sd.channel_data(brand_a, ch["id"], DATA)["total_all_time"] > 0
+                     or sd.channel_data(brand_b, ch["id"], DATA)["total_all_time"] > 0]
+    head_cols = st.columns([0.9, 1.3, 1.3, 1.7])
+    for col, label in zip(head_cols, ["CHANNEL", brand_a.upper(), brand_b.upper(), "THE GAP"]):
+        col.markdown(f'<div class="bs-table-head" style="border:none;padding:0;margin:0">{label}</div>', unsafe_allow_html=True)
+    st.markdown('<hr style="margin:6px 0 4px 0">', unsafe_allow_html=True)
+    for idx, ch in enumerate(compare_rows):
         ra, rb = sd.channel_data(brand_a, ch["id"], DATA), sd.channel_data(brand_b, ch["id"], DATA)
-        if ra["total_all_time"] == 0 and rb["total_all_time"] == 0:
-            continue
         d_vol = ra["volume"] - rb["volume"]
         d_see, d_do = ra["split"][0] - rb["split"][0], ra["split"][2] - rb["split"][2]
         big = abs(d_see) >= abs(d_do)
@@ -1099,17 +1227,19 @@ else:  # Compare
             diff = d_see if big else d_do
             gap = (f"{brand_a} runs {abs(d_vol)} {'more' if d_vol >= 0 else 'fewer'} {ch['unit']} and is "
                    f"{abs(diff)}pts {'heavier' if diff >= 0 else 'lighter'} on {'See' if big else 'Do'}.")
-        with st.container(border=True):
-            name_c, a_c, b_c, gap_c = st.columns([0.9, 1.3, 1.3, 1.7])
-            name_c.markdown(f'<div style="font-size:12px;font-weight:600">{ch["name"]}</div>', unsafe_allow_html=True)
-            for col, r in [(a_c, ra), (b_c, rb)]:
-                col.markdown(
-                    f'<div style="display:flex;align-items:baseline;gap:5px;margin-bottom:6px">'
-                    f'<div style="font-size:15px;font-weight:600">{r["volume"]}</div><div style="font-size:9.5px;color:{MUTED}">{ch["unit"]}</div></div>'
-                    + stage_bar(r["split"], height=9, radius=5) + mix_caption(r["split"], ""),
-                    unsafe_allow_html=True,
-                )
-            gap_c.markdown(f'<div style="font-size:11px;line-height:1.4;color:{INK_TEXT}">{gap}</div>', unsafe_allow_html=True)
+        name_c, a_c, b_c, gap_c = st.columns([0.9, 1.3, 1.3, 1.7])
+        name_c.markdown(f'<div style="font-size:12px;font-weight:600">{ch["name"]}</div>', unsafe_allow_html=True)
+        for col, r in [(a_c, ra), (b_c, rb)]:
+            col.markdown(
+                f'<div style="display:flex;align-items:baseline;gap:5px;margin-bottom:6px">'
+                f'<div style="font-size:15px;font-weight:600">{r["volume"]}</div><div style="font-size:9.5px;color:{MUTED}">{ch["unit"]}</div></div>'
+                + stage_bar(r["split"], height=9, radius=5) + mix_caption(r["split"], ""),
+                unsafe_allow_html=True,
+            )
+        gap_c.markdown(f'<div style="font-size:11px;line-height:1.4;color:{INK_TEXT}">{gap}</div>', unsafe_allow_html=True)
+        if idx < len(compare_rows) - 1:
+            table_row_divider()
+    st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown(
