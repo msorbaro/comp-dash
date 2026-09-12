@@ -1,7 +1,6 @@
 """Fetches new posts for every active competitor and upserts them into the
 database. Dedupes on `instagram_post_id`, so re-running is always safe.
 """
-import datetime as dt
 import json
 import os
 
@@ -10,7 +9,7 @@ from scraper.apify_client import fetch_posts, normalize_post
 from scraper.media import fetch_thumbnail
 
 
-def _insert_posts(conn, raw_items: list, run_type: str, by_handle: dict, backfill_days: int,
+def _insert_posts(conn, raw_items: list, run_type: str, by_handle: dict,
                    commit_every: int = 25) -> dict:
     """Normalizes + inserts raw Apify items already in hand, downloading each
     post's thumbnail while its signed Instagram URL is still fresh. Split out
@@ -22,7 +21,6 @@ def _insert_posts(conn, raw_items: list, run_type: str, by_handle: dict, backfil
     sunk into it) doesn't lose everything already processed.
     """
     stats = {"posts_added": 0, "posts_skipped_duplicate": 0}
-    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=backfill_days)
 
     for raw in raw_items:
         post = normalize_post(raw)
@@ -34,11 +32,13 @@ def _insert_posts(conn, raw_items: list, run_type: str, by_handle: dict, backfil
             continue  # post from an account not in our competitor list (shouldn't happen)
         competitor_id, _ = match
 
-        posted_at = post["posted_at"]
-        if run_type == "backfill" and posted_at:
-            posted_dt = dt.datetime.fromisoformat(posted_at.replace("Z", "+00:00"))
-            if posted_dt < cutoff:
-                continue
+        # No age cutoff here: `results_limit` (backfill_max_posts) already bounds
+        # how many posts we fetch and pay for per profile, so an additional age
+        # filter only throws away already-fetched data - and for a low-frequency
+        # or previously-dormant account, that meant its real recent history
+        # (e.g. a burst of activity 4-5 months ago) was silently discarded and
+        # never recovered by later weekly runs, which only look at each
+        # profile's *newest* posts rather than digging back through time.
 
         thumbnail = fetch_thumbnail(post["media_url"])
 
@@ -97,7 +97,6 @@ def _log_run(conn, run_type: str, competitors_scraped: int, stats: dict, errors:
 
 def ingest_new_posts(run_type: str = "weekly", only_own_brand: bool = False) -> dict:
     max_per_run = int(os.environ.get("MAX_POSTS_PER_RUN", "20"))
-    backfill_days = int(os.environ.get("BACKFILL_DAYS", "90"))
     backfill_max_posts = int(os.environ.get("BACKFILL_MAX_POSTS", "40"))
     results_limit = max_per_run if run_type == "weekly" else backfill_max_posts
 
@@ -115,7 +114,7 @@ def ingest_new_posts(run_type: str = "weekly", only_own_brand: bool = False) -> 
             errors.append({"scope": "actor_run", "error": str(exc)})
             raw_items = []
 
-        stats = _insert_posts(conn, raw_items, run_type, by_handle, backfill_days)
+        stats = _insert_posts(conn, raw_items, run_type, by_handle)
         status = _log_run(conn, run_type, len(competitors), stats, errors)
 
     stats["competitors_scraped"] = len(competitors)
@@ -160,7 +159,6 @@ def recover_run(apify_run_id: str, run_type: str = "backfill") -> dict:
     from scraper.apify_client import ApifyClient  # local import, optional dep path
 
     conn = get_conn()
-    backfill_days = int(os.environ.get("BACKFILL_DAYS", "90"))
 
     with conn:
         competitors, by_handle = _get_active_competitors(conn)
@@ -169,7 +167,7 @@ def recover_run(apify_run_id: str, run_type: str = "backfill") -> dict:
         run = client.run(apify_run_id).get()
         raw_items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
 
-        stats = _insert_posts(conn, raw_items, run_type, by_handle, backfill_days)
+        stats = _insert_posts(conn, raw_items, run_type, by_handle)
         status = _log_run(conn, run_type, len(competitors), stats, [])
 
     stats["competitors_scraped"] = len(competitors)

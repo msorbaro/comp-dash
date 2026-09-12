@@ -69,7 +69,7 @@ Add `DATABASE_URL`, `APIFY_TOKEN`, `ANTHROPIC_API_KEY` with the same values as y
 # 1. Create tables + seed competitors/categories (safe to re-run any time config/competitors.yaml changes)
 python -m scripts.init_db
 
-# 2. First historical pull (last BACKFILL_DAYS, default 90)
+# 2. First historical pull (up to BACKFILL_MAX_POSTS per account, default 40)
 python -m scripts.run_weekly --backfill
 
 # 3. View the dashboard
