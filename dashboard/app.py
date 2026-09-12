@@ -663,6 +663,7 @@ if page == "Brand Profile":
         styled_bar(mix, "count", "category", PLATFORM["Instagram"]["color"], "# of posts")
 
         top = ig.sort_values("like_count", ascending=False).head(8)
+        st.caption(f"Showing top {len(top)} of {len(ig)} posts, by likes.")
         thumbs = load_thumbnails(tuple(top["id"].tolist()))
         rows = [{
             "image": thumbs.get(r["id"]),
@@ -715,6 +716,7 @@ if page == "Brand Profile":
         # Prioritize video ads into the visible set - sorting by date alone can
         # bury every video creative behind more-recent image/carousel ads.
         top = brand_ads.sort_values(["has_video", "start_date"], ascending=[False, False]).head(8)
+        st.caption(f"Showing top {len(top)} of {len(brand_ads)} ads, prioritizing video and recency.")
         rows = [{
             "image": load_ad_creative(r["id"]),
             "video_url": load_ad_video(r["id"]) if r["has_video"] else None,
@@ -740,6 +742,7 @@ if page == "Brand Profile":
         styled_bar(mix, "count", "category", PLATFORM["TikTok"]["color"], "# of videos")
 
         top = tt.sort_values("view_count", ascending=False).head(8)
+        st.caption(f"Showing top {len(top)} of {len(tt)} videos, by views.")
         rows = [{
             "image": load_tiktok_thumbnail(r["id"]),
             "embed_html": tiktok_embed_html(r["video_url"]),
@@ -765,6 +768,7 @@ if page == "Brand Profile":
         styled_bar(mix, "count", "category", PLATFORM["YouTube"]["color"], "# of videos")
 
         top = yt.sort_values("view_count", ascending=False).head(8)
+        st.caption(f"Showing top {len(top)} of {len(yt)} videos, by views.")
         rows = [{
             "image": load_youtube_thumbnail(r["id"]),
             "title": r["title"],
@@ -789,6 +793,7 @@ if page == "Brand Profile":
         styled_bar(mix, "count", "category", PLATFORM["X"]["color"], "# of posts")
 
         top = xp.sort_values("like_count", ascending=False).head(6)
+        st.caption(f"Showing top {len(top)} of {len(xp)} posts, by likes.")
         for _, r in top.iterrows():
             with st.container(border=True):
                 st.markdown(f"**{r['category']}** &nbsp;·&nbsp; {r['posted_at']:%b %d, %Y}")
@@ -812,6 +817,7 @@ if page == "Brand Profile":
             c2.metric("Total tracked", len(gads_own))
 
             top = gads_own.sort_values("last_shown", ascending=False).head(8)
+            st.caption(f"Showing top {len(top)} of {len(gads_own)} ads, by most recently shown.")
             rows = [{
                 "image": load_google_ad_creative(r["id"]),
                 "title": r["ad_format"],
@@ -830,6 +836,7 @@ if page == "Brand Profile":
             st.dataframe(conquesters, hide_index=True, width="stretch")
             with st.expander("See their ad creatives"):
                 top_c = gads_conquest.sort_values("last_shown", ascending=False).head(8)
+                st.caption(f"Showing top {len(top_c)} of {len(gads_conquest)} ads, by most recently shown.")
                 rows = [{
                     "image": load_google_ad_creative(r["id"]),
                     "title": r["advertiser_name"],
