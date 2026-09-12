@@ -226,11 +226,24 @@ def tiktok_embed_html(video_url: str) -> str:
     )
 
 
+FUNNEL_HINT = {
+    "See": "See — broad awareness, no purchase intent yet",
+    "Think": "Think — comparing options, weak-to-moderate intent",
+    "Do": "Do — ready to act now, strong purchase intent",
+}
+
+
+def _funnel_tooltip(stage) -> str:
+    return FUNNEL_HINT.get(stage, "Funnel stage not yet classified") if stage else "Funnel stage not yet classified"
+
+
 def card_grid(rows: list, n_cols: int = 4, accent: str = INK_MUTED):
     """rows: list of dicts with keys image (data-uri or None), title, caption, meta, link,
-    and optionally video_url (raw video bytes OR a playable URL - anything st.video()
-    accepts) or embed_html (an iframe, e.g. a TikTok embed) to reveal in a "Play"
-    expander instead of the static image."""
+    optionally video_url (raw video bytes OR a playable URL - anything st.video() accepts)
+    or embed_html (an iframe, e.g. a TikTok embed) to reveal in a "Play" expander instead
+    of the static image, and optionally funnel_stage ("See"/"Think"/"Do") which renders as
+    a thin colored strip on the image (hover it for the full label - a tooltip, not a
+    persistent text label, since color already carries the signal at a glance)."""
     if not rows:
         empty_note("Nothing to show yet.")
         return
@@ -238,13 +251,23 @@ def card_grid(rows: list, n_cols: int = 4, accent: str = INK_MUTED):
     for i, row in enumerate(rows):
         with cols[i % n_cols]:
             with st.container(border=True):
+                stage = row.get("funnel_stage")
+                stage_color = FUNNEL_COLORS.get(stage, "transparent")
+                tooltip = _funnel_tooltip(stage)
                 if row.get("image"):
-                    st.image(row["image"], width="stretch")
+                    st.markdown(
+                        f'<div title="{tooltip}" style="border-top:5px solid {stage_color};'
+                        f'border-radius:8px;overflow:hidden;line-height:0;">'
+                        f'<img src="{row["image"]}" style="width:100%;display:block;" /></div>',
+                        unsafe_allow_html=True,
+                    )
                 else:
                     st.markdown(
-                        f'<div style="height:120px;background:{PAGE_PLANE};border-radius:6px;'
+                        f'<div title="{tooltip}" style="height:120px;background:{PAGE_PLANE};'
+                        f'border-top:5px solid {stage_color};border-radius:8px;'
                         f'display:flex;align-items:center;justify-content:center;color:{INK_MUTED};'
-                        f'font-size:0.75rem;">No image</div>',
+                        f'font-size:0.75rem;text-align:center;padding:0 0.5rem;">'
+                        f'{row.get("no_image_label", "No preview available")}</div>',
                         unsafe_allow_html=True,
                     )
                 if row.get("video_url") or row.get("embed_html"):
@@ -261,6 +284,33 @@ def card_grid(rows: list, n_cols: int = 4, accent: str = INK_MUTED):
                     st.markdown(f'<div class="card-meta">{row["meta"]}</div>', unsafe_allow_html=True)
                 if row.get("link"):
                     st.link_button("Open", row["link"], width="stretch")
+
+
+def paginated_cards(df, section_key: str, build_row, n_cols: int = 4, initial: int = 8, step: int = 8,
+                     on_subset=None):
+    """Renders df (already sorted by relevance) as a card_grid capped at a growing
+    "show N" count kept in session state, with a "See more" button beneath that
+    reveals `step` more each click - so a brand with 40 posts isn't permanently
+    capped at 8, but the page also doesn't render everything at once.
+
+    `on_subset`, if given, is called once with the currently-visible subset before
+    build_row runs per-row - use it to batch-prefetch (e.g. thumbnails for exactly
+    the shown ids in one query) rather than prefetching the entire, much larger df."""
+    state_key = f"show_count__{section_key}"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = initial
+    shown = min(st.session_state[state_key], len(df))
+    subset = df.head(shown)
+    if on_subset is not None:
+        on_subset(subset)
+    st.caption(f"Showing {shown} of {len(df)}. Hover an image for its See/Think/Do funnel stage.")
+    rows = [build_row(r) for _, r in subset.iterrows()]
+    card_grid(rows, n_cols=n_cols)
+    if shown < len(df):
+        remaining = len(df) - shown
+        if st.button(f"See more ({remaining} more)", key=f"seemore__{section_key}"):
+            st.session_state[state_key] += step
+            st.rerun()
 
 
 # ============================================================================
@@ -782,17 +832,22 @@ if page == "Brand Profile":
         mix.columns = ["category", "count"]
         styled_bar(mix, "count", "category", PLATFORM["Instagram"]["color"], "# of posts")
 
-        top = ig.sort_values("like_count", ascending=False).head(8)
-        st.caption(f"Showing top {len(top)} of {len(ig)} posts, by likes.")
-        thumbs = load_thumbnails(tuple(top["id"].tolist()))
-        rows = [{
-            "image": thumbs.get(r["id"]),
-            "title": f"❤️ {r['like_count']:,} · 💬 {r['comment_count'] or 0:,}",
-            "caption": (r["caption"] or "")[:140],
-            "meta": f"{r['category']} · {r['posted_at']:%b %d, %Y}",
-            "link": r["post_url"],
-        } for _, r in top.iterrows()]
-        card_grid(rows, accent=PLATFORM["Instagram"]["color"])
+        ig_sorted = ig.sort_values("like_count", ascending=False)
+        ig_thumbs = {}
+
+        def _ig_prefetch(subset):
+            ig_thumbs.update(load_thumbnails(tuple(subset["id"].tolist())))
+
+        def _ig_row(r):
+            return {
+                "image": ig_thumbs.get(r["id"]),
+                "funnel_stage": r["funnel_stage"],
+                "title": f"❤️ {r['like_count']:,} · 💬 {r['comment_count'] or 0:,}",
+                "caption": (r["caption"] or "")[:140],
+                "meta": f"{r['category']} · {r['posted_at']:%b %d, %Y}",
+                "link": r["post_url"],
+            }
+        paginated_cards(ig_sorted, f"ig_{competitor_name}", _ig_row, on_subset=_ig_prefetch)
 
     # ---- Website ----
     section_header("Website", "Website Tracker")
@@ -835,17 +890,19 @@ if page == "Brand Profile":
 
         # Prioritize video ads into the visible set - sorting by date alone can
         # bury every video creative behind more-recent image/carousel ads.
-        top = brand_ads.sort_values(["has_video", "start_date"], ascending=[False, False]).head(8)
-        st.caption(f"Showing top {len(top)} of {len(brand_ads)} ads, prioritizing video and recency.")
-        rows = [{
-            "image": load_ad_creative(r["id"]),
-            "video_url": load_ad_video(r["id"]) if r["has_video"] else None,
-            "title": r["headline"] or r["creative_type"],
-            "caption": (r["caption"] or "")[:140],
-            "meta": f"{r['category']} · {'Running' if r['is_active'] else 'Ended'} · {', '.join(r['platforms'] or [])}",
-            "link": r["ad_url"],
-        } for _, r in top.iterrows()]
-        card_grid(rows, accent=PLATFORM["Ads"]["color"])
+        ads_sorted = brand_ads.sort_values(["has_video", "start_date"], ascending=[False, False])
+
+        def _ad_row(r):
+            return {
+                "image": load_ad_creative(r["id"]),
+                "video_url": load_ad_video(r["id"]) if r["has_video"] else None,
+                "funnel_stage": r["funnel_stage"],
+                "title": r["headline"] or r["creative_type"],
+                "caption": (r["caption"] or "")[:140],
+                "meta": f"{r['category']} · {'Running' if r['is_active'] else 'Ended'} · {', '.join(r['platforms'] or [])}",
+                "link": r["ad_url"],
+            }
+        paginated_cards(ads_sorted, f"ads_{competitor_name}", _ad_row)
 
     # ---- TikTok ----
     section_header("TikTok", "TikTok")
@@ -861,17 +918,19 @@ if page == "Brand Profile":
         mix.columns = ["category", "count"]
         styled_bar(mix, "count", "category", PLATFORM["TikTok"]["color"], "# of videos")
 
-        top = tt.sort_values("view_count", ascending=False).head(8)
-        st.caption(f"Showing top {len(top)} of {len(tt)} videos, by views.")
-        rows = [{
-            "image": load_tiktok_thumbnail(r["id"]),
-            "embed_html": tiktok_embed_html(r["video_url"]),
-            "title": f"▶️ {r['view_count']:,} · ❤️ {r['like_count']:,}",
-            "caption": (r["caption"] or "")[:140],
-            "meta": f"{r['category']} · {r['posted_at']:%b %d, %Y}",
-            "link": r["video_url"],
-        } for _, r in top.iterrows()]
-        card_grid(rows, accent=PLATFORM["TikTok"]["color"])
+        tt_sorted = tt.sort_values("view_count", ascending=False)
+
+        def _tt_row(r):
+            return {
+                "image": load_tiktok_thumbnail(r["id"]),
+                "embed_html": tiktok_embed_html(r["video_url"]),
+                "funnel_stage": r["funnel_stage"],
+                "title": f"▶️ {r['view_count']:,} · ❤️ {r['like_count']:,}",
+                "caption": (r["caption"] or "")[:140],
+                "meta": f"{r['category']} · {r['posted_at']:%b %d, %Y}",
+                "link": r["video_url"],
+            }
+        paginated_cards(tt_sorted, f"tt_{competitor_name}", _tt_row)
 
     # ---- YouTube ----
     section_header("YouTube", "YouTube")
@@ -887,16 +946,18 @@ if page == "Brand Profile":
         mix.columns = ["category", "count"]
         styled_bar(mix, "count", "category", PLATFORM["YouTube"]["color"], "# of videos")
 
-        top = yt.sort_values("view_count", ascending=False).head(8)
-        st.caption(f"Showing top {len(top)} of {len(yt)} videos, by views.")
-        rows = [{
-            "image": load_youtube_thumbnail(r["id"]),
-            "title": r["title"],
-            "caption": (r["caption"] or "")[:140],
-            "meta": f"{r['category']} · {r['video_type']} · {r['posted_at']:%b %d, %Y}",
-            "link": r["video_url"],
-        } for _, r in top.iterrows()]
-        card_grid(rows, accent=PLATFORM["YouTube"]["color"])
+        yt_sorted = yt.sort_values("view_count", ascending=False)
+
+        def _yt_row(r):
+            return {
+                "image": load_youtube_thumbnail(r["id"]),
+                "funnel_stage": r["funnel_stage"],
+                "title": r["title"],
+                "caption": (r["caption"] or "")[:140],
+                "meta": f"{r['category']} · {r['video_type']} · {r['posted_at']:%b %d, %Y}",
+                "link": r["video_url"],
+            }
+        paginated_cards(yt_sorted, f"yt_{competitor_name}", _yt_row)
 
     # ---- X ----
     section_header("X", "X (Twitter)")
@@ -912,11 +973,21 @@ if page == "Brand Profile":
         mix.columns = ["category", "count"]
         styled_bar(mix, "count", "category", PLATFORM["X"]["color"], "# of posts")
 
-        top = xp.sort_values("like_count", ascending=False).head(6)
-        st.caption(f"Showing top {len(top)} of {len(xp)} posts, by likes.")
-        for _, r in top.iterrows():
+        x_sorted = xp.sort_values("like_count", ascending=False)
+        x_state_key = f"show_count__x_{competitor_name}"
+        if x_state_key not in st.session_state:
+            st.session_state[x_state_key] = 6
+        x_shown = min(st.session_state[x_state_key], len(x_sorted))
+        st.caption(f"Showing {x_shown} of {len(x_sorted)}. Hover a post's header for its funnel stage.")
+        for _, r in x_sorted.head(x_shown).iterrows():
+            stage_color = FUNNEL_COLORS.get(r["funnel_stage"], "transparent")
             with st.container(border=True):
-                st.markdown(f"**{r['category']}** &nbsp;·&nbsp; {r['posted_at']:%b %d, %Y}")
+                st.markdown(
+                    f'<div style="border-left:4px solid {stage_color};padding-left:0.6rem;" '
+                    f'title="{_funnel_tooltip(r["funnel_stage"])}">'
+                    f'<b>{r["category"]}</b> &nbsp;·&nbsp; {r["posted_at"]:%b %d, %Y}</div>',
+                    unsafe_allow_html=True,
+                )
                 st.markdown(r["text"] or "")
                 st.markdown(
                     f'<span class="card-meta">❤️ {r["like_count"]:,} &nbsp; 🔁 {r["retweet_count"]:,} '
@@ -924,6 +995,10 @@ if page == "Brand Profile":
                     unsafe_allow_html=True,
                 )
                 st.link_button("Open on X", r["post_url"])
+        if x_shown < len(x_sorted):
+            if st.button(f"See more ({len(x_sorted) - x_shown} more)", key=f"seemore__x_{competitor_name}"):
+                st.session_state[x_state_key] += 6
+                st.rerun()
 
     # ---- Google Search Ads ----
     section_header("Google Ads", "Google Search Ads")
@@ -936,16 +1011,24 @@ if page == "Brand Profile":
             c1.metric("Currently running", len(active_gads))
             c2.metric("Total tracked", len(gads_own))
 
-            top = gads_own.sort_values("last_shown", ascending=False).head(8)
-            st.caption(f"Showing top {len(top)} of {len(gads_own)} ads, by most recently shown.")
-            rows = [{
-                "image": load_google_ad_creative(r["id"]),
-                "title": r["ad_format"],
-                "meta": f"{r['funnel_stage']} · {'Running' if r['is_active'] else 'Ended'} · "
-                        f"~{r['approx_days_shown']} days shown",
-                "link": r["ad_url"],
-            } for _, r in top.iterrows()]
-            card_grid(rows, accent=PLATFORM["Google Ads"]["color"])
+            gads_own_sorted = gads_own.sort_values("last_shown", ascending=False)
+
+            def _gads_no_image_label(ad_format: str) -> str:
+                # Google's Ads Transparency data has no static creative for these
+                # formats at all (not a scraping gap) - say so instead of a blank box.
+                return {"text": "Text ad — no visual creative", "video": "Video ad — no preview image available"} \
+                    .get(ad_format, "No preview available")
+
+            def _gads_row(r):
+                return {
+                    "image": load_google_ad_creative(r["id"]),
+                    "no_image_label": _gads_no_image_label(r["ad_format"]),
+                    "funnel_stage": r["funnel_stage"],
+                    "title": r["ad_format"],
+                    "meta": f"{'Running' if r['is_active'] else 'Ended'} · ~{r['approx_days_shown']} days shown",
+                    "link": r["ad_url"],
+                }
+            paginated_cards(gads_own_sorted, f"gads_{competitor_name}", _gads_row)
         else:
             empty_note("No ads found running under this brand's own name on Google Search.")
 
@@ -955,15 +1038,18 @@ if page == "Brand Profile":
             conquesters.columns = ["advertiser", "ad count"]
             st.dataframe(conquesters, hide_index=True, width="stretch")
             with st.expander("See their ad creatives"):
-                top_c = gads_conquest.sort_values("last_shown", ascending=False).head(8)
-                st.caption(f"Showing top {len(top_c)} of {len(gads_conquest)} ads, by most recently shown.")
-                rows = [{
-                    "image": load_google_ad_creative(r["id"]),
-                    "title": r["advertiser_name"],
-                    "meta": f"{r['funnel_stage']} · targeting \"{r['search_term']}\"",
-                    "link": r["ad_url"],
-                } for _, r in top_c.iterrows()]
-                card_grid(rows, accent=PLATFORM["Google Ads"]["color"])
+                gads_conquest_sorted = gads_conquest.sort_values("last_shown", ascending=False)
+
+                def _gads_conquest_row(r):
+                    return {
+                        "image": load_google_ad_creative(r["id"]),
+                        "no_image_label": _gads_no_image_label(r["ad_format"]),
+                        "funnel_stage": r["funnel_stage"],
+                        "title": r["advertiser_name"],
+                        "meta": f"targeting \"{r['search_term']}\"",
+                        "link": r["ad_url"],
+                    }
+                paginated_cards(gads_conquest_sorted, f"gads_conquest_{competitor_name}", _gads_conquest_row)
 
 # ============================================================================================
 # CATEGORY DETAIL — one competitive set, every brand in it, side by side by channel
