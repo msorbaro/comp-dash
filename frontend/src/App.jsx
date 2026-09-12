@@ -16,7 +16,6 @@ export default function App() {
   const [category, setCategory] = useState(null)
   const [compareA, setCompareA] = useState(null)
   const [compareB, setCompareB] = useState(null)
-  const [compareTarget, setCompareTarget] = useState(null) // for the Brand page's "compare with" picker
 
   useEffect(() => {
     api.meta().then((m) => {
@@ -26,7 +25,6 @@ export default function App() {
       setCategory(m.categories[0]?.name)
       setCompareA(firstBrand)
       setCompareB(m.brands[1]?.name)
-      setCompareTarget(m.brands[1]?.name)
     })
   }, [])
 
@@ -34,13 +32,15 @@ export default function App() {
 
   const goto = (nextScreen) => {
     if (nextScreen !== 'channel') setChannelId(null)
+    // Head to head always opens with the brand currently in focus as Side A,
+    // so jumping there from anywhere else is a sensible starting comparison.
+    if (nextScreen === 'compare' && screen !== 'compare') setCompareA(brand)
     setScreen(nextScreen)
     window.scrollTo(0, 0)
   }
   const openBrand = (name) => { setBrand(name); goto('brand') }
   const openChannel = (id) => { setChannelId(id); setScreen('channel'); window.scrollTo(0, 0) }
   const openCategory = (name) => { setCategory(name); goto('category') }
-  const openCompare = () => { setCompareA(brand); setCompareB(compareTarget); goto('compare') }
 
   return (
     <div style={{ minHeight: '100vh', background: CANVAS, fontFamily: 'Poppins, system-ui, sans-serif', fontSize: 13, color: '#1A1F26' }}>
@@ -55,9 +55,6 @@ export default function App() {
             onBrandChange={openBrand}
             onOpenChannel={openChannel}
             onOpenCategory={openCategory}
-            onOpenCompare={openCompare}
-            compareTarget={compareTarget || meta.brands.find((b) => b.name !== brand)?.name}
-            onCompareTargetChange={setCompareTarget}
           />
         )}
         {screen === 'channel' && (
@@ -76,7 +73,7 @@ export default function App() {
         )}
         {screen === 'compare' && (
           <Compare
-            meta={meta} brandA={compareA || brand} brandB={compareB || compareTarget}
+            meta={meta} brandA={compareA || brand} brandB={compareB || meta.brands.find((b) => b.name !== brand)?.name}
             onBrandAChange={setCompareA} onBrandBChange={setCompareB}
           />
         )}

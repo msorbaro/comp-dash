@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ContextBar from '../components/ContextBar'
-import { SectionNumber, StageBar, MixCaption, ReadLine, CreativeCard, TableHead, RowDivider } from '../components/Widgets'
+import { SectionNumber, StageBar, MixCaption, ReadLine, CreativeCard, RowDivider, InfoLabel } from '../components/Widgets'
 import {
-  competesBadgeStyle, paidChipStyle, trendColor, trendLabel, fmtNum, mixLabel, verdict,
+  competesBadgeStyle, paidChipStyle, fmtNum, mixLabel, verdict,
   dominantIdx, dominantWord, STAGES, MUTED, INK_TEXT, SLATE_600, SLATE_400, SLATE_200, TEAL_700, DEEP_TEAL, INK, TRACK,
+  METRIC_DEFINITIONS, engagementExplanation,
 } from '../styles'
 
-export default function Brand({ meta, brand, onBrandChange, onOpenChannel, onOpenCategory, onOpenCompare, compareTarget, onCompareTargetChange }) {
+export default function Brand({ meta, brand, onBrandChange, onOpenChannel, onOpenCategory }) {
   const [profile, setProfile] = useState(null)
   const [channelCreatives, setChannelCreatives] = useState({})
 
@@ -57,12 +58,14 @@ export default function Brand({ meta, brand, onBrandChange, onOpenChannel, onOpe
           </div>
           <div style={{ display: 'flex', gap: 26, flex: 'none', alignItems: 'flex-start', flexWrap: 'wrap' }}>
             {[
-              ['TRACKED OUTPUT', fmtNum(profile.monthly_output), 'items / month'],
-              ['ACTIVE CHANNELS', `${profile.active_channels}/7`, 'of channels tracked'],
-              ['CONSISTENCY', profile.consistency != null ? String(profile.consistency) : '—', 'same story across channels'],
-            ].map(([lbl, val, note]) => (
+              ['TRACKED OUTPUT', fmtNum(profile.monthly_output), 'items / month', METRIC_DEFINITIONS.trackedOutput],
+              ['ACTIVE CHANNELS', `${profile.active_channels}/7`, 'of channels tracked', METRIC_DEFINITIONS.activeChannels],
+              ['CONSISTENCY', profile.consistency != null ? String(profile.consistency) : '—', 'same story across channels, 0-100', METRIC_DEFINITIONS.consistency],
+            ].map(([lbl, val, note, def]) => (
               <div key={lbl}>
-                <div style={{ fontSize: 9.5, letterSpacing: '.12em', color: SLATE_400, fontWeight: 600 }}>{lbl}</div>
+                <div style={{ fontSize: 9.5, letterSpacing: '.12em', color: SLATE_400, fontWeight: 600 }}>
+                  <InfoLabel text={lbl} tooltip={def} />
+                </div>
                 <div style={{ fontSize: 23, fontWeight: 600, marginTop: 5 }}>{val}</div>
                 <div style={{ fontSize: 10.5, color: SLATE_400 }}>{note}</div>
               </div>
@@ -83,34 +86,23 @@ export default function Brand({ meta, brand, onBrandChange, onOpenChannel, onOpe
         >
           View {profile.category} rollup →
         </button>
-        <div style={{ width: 1, height: 22, background: SLATE_200 }} />
-        <div style={{ fontSize: 11.5, color: SLATE_600 }}>Compare with</div>
-        <select
-          value={compareTarget}
-          onChange={(e) => onCompareTargetChange(e.target.value)}
-          style={{ background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: 7, padding: '7px 10px', fontFamily: 'Poppins, sans-serif', fontSize: 11.5, maxWidth: 240 }}
-        >
-          {meta.brands.filter((b) => b.name !== brand).map((b) => (
-            <option key={b.name} value={b.name}>{b.name} — {b.category}</option>
-          ))}
-        </select>
-        <button
-          onClick={onOpenCompare}
-          style={{ background: DEEP_TEAL, color: '#FFFFFF', border: 'none', borderRadius: 7, padding: '8px 14px', fontSize: 11.5, fontWeight: 500, cursor: 'pointer', fontFamily: 'Poppins, sans-serif' }}
-        >
-          Open comparison
-        </button>
       </div>
 
       <div style={{ fontSize: 14, fontWeight: 600 }}>Channel summary</div>
       <div style={{ fontSize: 11, color: MUTED, margin: '3px 0 14px' }}>
         Scale of use, See/Think/Do split, and the message being carried in each stage.
       </div>
-      <TableHead columns={[
-        { label: 'CHANNEL', width: '1.3fr' }, { label: 'SCALE OF USE', width: '1.1fr' },
-        { label: 'SEE / THINK / DO', width: '1.4fr' }, { label: 'WHAT IS SAID, BY STAGE', width: '2.4fr' },
-        { label: 'AVG. ENGAGEMENT', width: '0.9fr' },
-      ]} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.1fr 1.4fr 2.4fr 0.9fr', gap: 14 }}>
+        {[
+          ['CHANNEL', null], ['TOTAL POSTED', 'All-time total for this channel, plus the long-run monthly average (total ÷ months tracked) - a channel gone quiet for 90+ days still shows its real history here instead of reading as zero.'],
+          ['SEE / THINK / DO', null], ['WHAT IS SAID, BY STAGE', null], ['AVG. ENGAGEMENT', null],
+        ].map(([label, tip]) => (
+          <div key={label} style={{ fontSize: 9.5, letterSpacing: '.1em', color: MUTED, fontWeight: 600 }}>
+            {tip ? <InfoLabel text={label} tooltip={tip} /> : label}
+          </div>
+        ))}
+      </div>
+      <hr style={{ margin: '6px 0 4px', border: 'none', borderTop: `1px solid ${SLATE_200}` }} />
       {profile.rows.map((r, idx) => (
         <div key={r.channel.id}>
           <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1.1fr 1.4fr 2.4fr 0.9fr', gap: 14, padding: '13px 0', alignItems: 'start' }}>
@@ -124,11 +116,13 @@ export default function Brand({ meta, brand, onBrandChange, onOpenChannel, onOpe
               <div style={paidChipStyle(r.channel.paid)}>{r.channel.paid ? 'PAID' : 'OWNED / ORGANIC'}</div>
             </div>
             <div>
-              <div style={{ fontSize: 17, fontWeight: 600 }}>{r.volume}<span style={{ fontSize: 9.5, color: MUTED, fontWeight: 400 }}> {r.channel.unit}</span></div>
+              <div style={{ fontSize: 17, fontWeight: 600 }}>{r.total_all_time}<span style={{ fontSize: 9.5, color: MUTED, fontWeight: 400 }}> total {r.channel.unit}</span></div>
               <div style={{ height: 5, borderRadius: 3, background: TRACK, marginTop: 6, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${r.vol_bar_pct}%`, background: DEEP_TEAL }} />
+                <div style={{ height: '100%', width: `${r.total_bar_pct}%`, background: DEEP_TEAL }} />
               </div>
-              <div style={{ fontSize: 11, marginTop: 5, color: trendColor(r.trend) }}>{trendLabel(r.trend)}</div>
+              <div style={{ fontSize: 11, marginTop: 5, color: MUTED }}>
+                ~{r.monthly_avg_all_time}/mo avg{r.last_posted ? ` · last posted ${r.last_posted}` : ''}
+              </div>
             </div>
             <div>
               <StageBar mix={r.split} />
@@ -147,9 +141,9 @@ export default function Brand({ meta, brand, onBrandChange, onOpenChannel, onOpe
                 </div>
               ))}
             </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>{r.engagement != null ? fmtNum(r.engagement) : '—'}</div>
-              <div style={{ fontSize: 9.5, color: MUTED }}>{r.share != null ? `${r.share}% of output` : ''}</div>
+            <div style={{ textAlign: 'right' }} title={engagementExplanation(r.channel.id)}>
+              <div style={{ fontSize: 15, fontWeight: 600, cursor: 'help' }}>{r.engagement != null ? fmtNum(r.engagement) : '—'}</div>
+              <div style={{ fontSize: 9.5, color: MUTED }}>{r.share != null ? `${r.share}% of output (90d)` : ''}</div>
             </div>
           </div>
           {idx < profile.rows.length - 1 && <RowDivider />}
@@ -205,7 +199,8 @@ export default function Brand({ meta, brand, onBrandChange, onOpenChannel, onOpe
 function channelTakeaway(r) {
   const topCt = r.content_types.length ? [...r.content_types].sort((a, b) => b.pct - a.pct)[0].name.toLowerCase() : 'unclassified content'
   const idx = dominantIdx(r.split)
-  return `${r.split[idx]}% ${dominantWord(r.split).replace('-led', '')}. Led by ${topCt} (${r.volume} in the last 90 days).`
+  return `${r.split[idx]}% ${dominantWord(r.split).replace('-led', '')}. Led by ${topCt} ` +
+    `(${r.total_all_time} tracked, ~${r.monthly_avg_all_time}/mo).`
 }
 
 function Sparkline({ weeks }) {

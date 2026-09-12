@@ -75,7 +75,31 @@ export function trendLabel(trend) {
   return `${trend >= 0 ? '▲ +' : '▼ '}${trend}% vs prior 90d`
 }
 
-export const MEDIA_HEIGHT = { vertical: 118, wide: 84, text: 76, square: 104 }
+// Heights are generous and images render with object-fit:contain (never
+// cropped) since ad/homepage creative comes in very different aspect ratios
+// (square posts, portrait story ads, tall homepage screenshots, landscape
+// video thumbnails) - a fixed crop would cut off real content.
+export const MEDIA_HEIGHT = { vertical: 320, wide: 160, search: 260, square: 190 }
 
 export const cardBase = { background: SURFACE, border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '20px 22px' }
 export const inkPanel = { background: INK, borderRadius: 13, padding: '24px 26px', color: '#FFFFFF' }
+
+// Definitions shown on hover next to each top-level brand stat - written out
+// in full so "69" or "consistency" is never just an unexplained number.
+export const METRIC_DEFINITIONS = {
+  trackedOutput: 'Total items posted across all 7 channels in the last 90 days, divided by 3 to give a monthly rate.',
+  activeChannels: 'How many of the 7 tracked channels have meaningful volume (more than 3 items - or 2 for Homepage - in this brand’s full tracked history).',
+  consistency: 'How similar the See/Think/Do mix is across this brand’s active channels, on a 0-100 scale. Calculated as 100 minus the average of (largest gap between channels on % See) and (largest gap on % Do). 100 = every active channel tells the same funnel story; a lower number means the message shifts a lot by channel.',
+}
+
+export function engagementExplanation(channelId) {
+  return {
+    ig_organic: 'Average likes per post.',
+    tiktok: 'Average views per video.',
+    youtube: 'Average views per video.',
+    x: 'Average likes + retweets per post.',
+    meta_ads: 'Not tracked — Meta’s Ads Library does not expose public engagement numbers for ads.',
+    search: 'Not tracked — Google’s Ads Transparency Center does not expose engagement numbers.',
+    homepage: 'Not applicable — a homepage snapshot has no engagement metric.',
+  }[channelId] || 'Not tracked for this channel.'
+}

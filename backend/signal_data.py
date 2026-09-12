@@ -31,9 +31,9 @@ CHANNELS = [
     {"id": "ig_organic", "name": "Instagram Organic", "short": "IG Organic", "paid": False, "unit": "posts", "shape": "square"},
     {"id": "tiktok", "name": "TikTok", "short": "TikTok", "paid": False, "unit": "videos", "shape": "vertical"},
     {"id": "youtube", "name": "YouTube", "short": "YouTube", "paid": False, "unit": "videos", "shape": "wide"},
-    {"id": "x", "name": "X / Twitter", "short": "X", "paid": False, "unit": "posts", "shape": "text"},
-    {"id": "search", "name": "Paid Search", "short": "Paid Search", "paid": True, "unit": "ads tracked", "shape": "text"},
-    {"id": "homepage", "name": "Homepage", "short": "Homepage", "paid": False, "unit": "snapshots", "shape": "wide"},
+    {"id": "x", "name": "X / Twitter", "short": "X", "paid": False, "unit": "posts", "shape": "quote"},
+    {"id": "search", "name": "Paid Search", "short": "Paid Search", "paid": True, "unit": "ads tracked", "shape": "search"},
+    {"id": "homepage", "name": "Homepage", "short": "Homepage", "paid": False, "unit": "snapshots", "shape": "vertical"},
 ]
 CHANNEL_BY_ID = {c["id"]: c for c in CHANNELS}
 
@@ -146,6 +146,17 @@ def _text_col_for(channel_id: str) -> str:
     }.get(channel_id, "caption")
 
 
+def _monthly_avg_all_time(sub: pd.DataFrame, date_col: str) -> float:
+    """Long-run posting rate: total items / months between the first and last
+    tracked item - honest for channels that were active once and have gone
+    quiet, unlike a 90-day-window rate which reads as ~0 for them."""
+    if sub.empty or not date_col:
+        return 0.0
+    span_days = (sub[date_col].max() - sub[date_col].min()).days
+    months = max(span_days / 30.44, 1.0)
+    return round(len(sub) / months, 1)
+
+
 def channel_data(name: str, channel_id: str, data: dict) -> dict:
     ch = CHANNEL_BY_ID[channel_id]
     sub, date_col, funnel_col, category_col = _channel_frame(name, channel_id, data)
@@ -161,12 +172,14 @@ def channel_data(name: str, channel_id: str, data: dict) -> dict:
     weeks = _weeks_last_12(sub, date_col) if date_col else [0] * 12
     content_types = _content_types(sub, category_col) if category_col else []
     messages = _messages_by_stage(sub, funnel_col, _text_col_for(channel_id)) if funnel_col else {"See": [], "Think": [], "Do": []}
+    last_posted = sub[date_col].max().strftime("%b %d, %Y") if date_col and len(sub) else None
 
     return {
         "channel": ch, "company": name, "split": split, "volume": volume,
         "engagement": engagement, "trend": trend, "weeks": weeks,
         "content_types": content_types, "messages": messages,
-        "total_all_time": len(sub), "_sub": sub, "_date_col": date_col,
+        "total_all_time": len(sub), "monthly_avg_all_time": _monthly_avg_all_time(sub, date_col),
+        "last_posted": last_posted, "_sub": sub, "_date_col": date_col,
     }
 
 
@@ -191,9 +204,11 @@ def company_profile(name: str, data: dict) -> dict:
     rows = [channel_data(name, ch["id"], data) for ch in CHANNELS]
     total_volume_90 = sum(r["volume"] for r in rows)
     max_volume_90 = max((r["volume"] for r in rows), default=0)
+    max_total_all_time = max((r["total_all_time"] for r in rows), default=0)
     for r in rows:
         r["share"] = round(r["volume"] / total_volume_90 * 100) if total_volume_90 else None
         r["vol_bar_pct"] = round(r["volume"] / max_volume_90 * 100) if max_volume_90 else 0
+        r["total_bar_pct"] = round(r["total_all_time"] / max_total_all_time * 100) if max_total_all_time else 0
     total_all_time = sum(r["total_all_time"] for r in rows)
     weighted = [0.0, 0.0, 0.0]
     for r in rows:
@@ -259,6 +274,13 @@ def creative_rows(name: str, channel_id: str, data: dict, n: int, loaders: dict)
         sub = sub.copy()
         sub["_eng"] = sub["like_count"].fillna(0) + sub["retweet_count"].fillna(0)
         sub = sub.sort_values("_eng", ascending=False)
+    elif channel_id == "homepage":
+        # Show distinct versions over time, not every weekly capture of the
+        # same unchanged page - always keep the most recent capture (today's
+        # live version) plus every capture flagged as an actual change.
+        sub = sub.sort_values(date_col, ascending=False)
+        sub = pd.concat([sub.head(1), sub[sub["changed"] == True]]).drop_duplicates(subset=["id"])  # noqa: E712
+        sub = sub.sort_values(date_col, ascending=False)
     elif sort_col and sort_col in sub.columns:
         sub = sub.sort_values(sort_col, ascending=False)
     elif date_col:
@@ -277,7 +299,7 @@ def creative_rows(name: str, channel_id: str, data: dict, n: int, loaders: dict)
         elif sort_col and sort_col in r:
             eng = r.get(sort_col)
 
-        image, video_url, embed_html, link = None, None, None, None
+        image, video_url, embed_html, link, search_term = None, None, None, None, None
         if channel_id == "ig_organic":
             image = loaders["ig_thumb"](r["id"])
             link = r.get("post_url")
@@ -296,13 +318,17 @@ def creative_rows(name: str, channel_id: str, data: dict, n: int, loaders: dict)
         elif channel_id == "search":
             image = loaders["gads_creative"](r["id"])
             link = r.get("ad_url")
+            search_term = r.get("search_term")
         elif channel_id == "homepage":
             image = loaders["homepage_shot"](r["id"])
+        elif channel_id == "x":
+            link = r.get("post_url")
 
         rows.append({
             "image": image, "video_url": video_url, "embed_html": embed_html, "link": link,
             "stage": stage, "type": r.get(category_col) if category_col else None,
             "why": text[:110] if text else "", "engagement": eng, "date": date_label,
-            "shape": CHANNEL_BY_ID[channel_id]["shape"],
+            "shape": CHANNEL_BY_ID[channel_id]["shape"], "search_term": search_term,
+            "quote_text": r.get("text") if channel_id == "x" else None,
         })
     return rows

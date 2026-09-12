@@ -64,6 +64,17 @@ export function ScopeChip({ label }) {
   )
 }
 
+export function InfoLabel({ text, tooltip, style }) {
+  return (
+    <span
+      title={tooltip}
+      style={{ cursor: 'help', borderBottom: '1px dotted currentColor', ...style }}
+    >
+      {text} <span style={{ opacity: 0.6 }}>ⓘ</span>
+    </span>
+  )
+}
+
 export function SectionNumber({ num, title }) {
   return (
     <div style={{ fontSize: 11, letterSpacing: '.15em', color: MUTED, fontWeight: 600, margin: '18px 0 10px' }}>
@@ -89,23 +100,103 @@ export function TableHead({ columns }) {
   )
 }
 
-export function CreativeCard({ cr, big = false }) {
+function StageTag({ stage }) {
+  if (!stage) return null
+  const color = STAGES.find((s) => s.name === stage)?.color || MUTED
+  return (
+    <div style={{ position: 'absolute', left: 8, top: 8, fontSize: 8.5, fontWeight: 600, letterSpacing: '.1em', color: '#FFFFFF', background: color, borderRadius: 4, padding: '2px 6px' }}>
+      {stage}
+    </div>
+  )
+}
+
+function PlayFooter({ cr, big }) {
   const [playing, setPlaying] = useState(false)
-  const stageColor = STAGES.find((s) => s.name === cr.stage)?.color || MUTED
-  const mediaH = MEDIA_HEIGHT[cr.shape] || 104
+  if (!cr.video_url && !cr.embed_html) return null
+  if (!playing) {
+    return (
+      <button
+        onClick={() => setPlaying(true)}
+        style={{ background: 'none', border: 'none', padding: 0, marginTop: 8, fontSize: 10.5, color: DEEP_TEAL, cursor: 'pointer', fontFamily: 'Poppins, sans-serif' }}
+      >
+        ▶ Play
+      </button>
+    )
+  }
+  return (
+    <div style={{ marginTop: 8 }}>
+      {cr.video_url && <video controls autoPlay src={cr.video_url} style={{ width: '100%', borderRadius: 6 }} />}
+      {cr.embed_html && (
+        <iframe
+          title="tiktok"
+          src={`https://www.tiktok.com/embed/v2/${cr.embed_html}`}
+          style={{ width: '100%', height: 500, border: 'none' }}
+          allow="encrypted-media;"
+        />
+      )}
+    </div>
+  )
+}
+
+function OpenLink({ href }) {
+  if (!href) return null
+  return (
+    <a href={href} target="_blank" rel="noreferrer" style={{ display: 'block', textAlign: 'center', marginTop: 8, fontSize: 10.5, fontWeight: 600, color: DEEP_TEAL, border: `1px solid ${SLATE_200}`, borderRadius: 6, padding: '5px 0' }}>
+      Open
+    </a>
+  )
+}
+
+// X has no creative image at all - a tweet is its own creative. Render it as
+// a real quote card instead of an empty/striped image box.
+function QuoteCard({ cr, big }) {
   return (
     <div style={{ border: `1px solid ${SLATE_200}`, borderRadius: 10, overflow: 'hidden', background: '#FBFCFD' }}>
-      <div style={{ position: 'relative', height: mediaH, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `1px solid ${SLATE_200}`, background: cr.image ? undefined : 'repeating-linear-gradient(135deg,#EEF2F6 0 7px,#E4EAF1 7px 14px)' }}>
+      <div style={{ padding: big ? '16px 17px' : '13px 14px', position: 'relative' }}>
+        <StageTag stage={cr.stage} />
+        <div style={{ fontSize: 28, lineHeight: 0.6, color: '#CBD5E1', fontFamily: 'Georgia, serif', marginBottom: 4 }}>&ldquo;</div>
+        <div style={{ fontSize: big ? 13 : 12, color: INK_TEXT, lineHeight: 1.5, minHeight: 60 }}>
+          {cr.quote_text || cr.why || 'No text captured.'}
+        </div>
+        <div style={{ display: 'inline-block', marginTop: 10, fontSize: 9.5, fontWeight: 600, letterSpacing: '.06em', color: SLATE_600, background: '#F1F5F9', borderRadius: 4, padding: '3px 7px' }}>
+          {cr.type || '—'}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 9, fontSize: 9.5, color: MUTED, fontFamily: MONO }}>
+          <span>{cr.engagement != null ? `${fmtNum(cr.engagement)} eng.` : '—'}</span>
+          <span>{cr.date}</span>
+        </div>
+        <OpenLink href={cr.link} />
+      </div>
+    </div>
+  )
+}
+
+export function CreativeCard({ cr, big = false }) {
+  if (cr.shape === 'quote') return <QuoteCard cr={cr} big={big} />
+
+  const mediaH = MEDIA_HEIGHT[cr.shape] || 190
+  const isVideo = !!(cr.video_url || cr.embed_html)
+  return (
+    <div style={{ border: `1px solid ${SLATE_200}`, borderRadius: 10, overflow: 'hidden', background: '#FBFCFD' }}>
+      {cr.search_term && (
+        <div style={{ fontSize: 9.5, color: SLATE_600, padding: '7px 10px', borderBottom: `1px solid ${SLATE_200}`, background: '#F8FAFC' }}>
+          Bidding on <b style={{ color: INK_TEXT }}>&ldquo;{cr.search_term}&rdquo;</b>
+        </div>
+      )}
+      <div style={{ position: 'relative', height: mediaH, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `1px solid ${SLATE_200}`, background: cr.image ? '#F1F5F9' : 'repeating-linear-gradient(135deg,#EEF2F6 0 7px,#E4EAF1 7px 14px)' }}>
         {cr.image ? (
-          <img src={cr.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          <img src={cr.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
         ) : (
           <div style={{ fontFamily: MONO, fontSize: 9.5, color: '#5A6773', textAlign: 'center', padding: '0 10px', lineHeight: 1.4 }}>
-            {cr.why || cr.type || 'no preview'}
+            {cr.why || cr.type || 'no preview available'}
           </div>
         )}
-        {cr.stage && (
-          <div style={{ position: 'absolute', left: 8, top: 8, fontSize: 8.5, fontWeight: 600, letterSpacing: '.1em', color: '#FFFFFF', background: stageColor, borderRadius: 4, padding: '2px 6px' }}>
-            {cr.stage}
+        <StageTag stage={cr.stage} />
+        {isVideo && cr.image && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(15,20,24,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: 0, height: 0, borderTop: '7px solid transparent', borderBottom: '7px solid transparent', borderLeft: '11px solid #FFFFFF', marginLeft: 3 }} />
+            </div>
           </div>
         )}
       </div>
@@ -118,35 +209,8 @@ export function CreativeCard({ cr, big = false }) {
           <span>{cr.engagement != null ? `${fmtNum(cr.engagement)} eng.` : '—'}</span>
           <span>{cr.date}</span>
         </div>
-        {(cr.video_url || cr.embed_html) && (
-          <div style={{ marginTop: 8 }}>
-            {!playing ? (
-              <button
-                onClick={() => setPlaying(true)}
-                style={{ background: 'none', border: 'none', padding: 0, fontSize: 10.5, color: DEEP_TEAL, cursor: 'pointer', fontFamily: 'Poppins, sans-serif' }}
-              >
-                ▶ Play
-              </button>
-            ) : (
-              <>
-                {cr.video_url && <video controls autoPlay src={cr.video_url} style={{ width: '100%', marginTop: 6, borderRadius: 6 }} />}
-                {cr.embed_html && (
-                  <iframe
-                    title="tiktok"
-                    src={`https://www.tiktok.com/embed/v2/${cr.embed_html}`}
-                    style={{ width: '100%', height: 500, border: 'none', marginTop: 6 }}
-                    allow="encrypted-media;"
-                  />
-                )}
-              </>
-            )}
-          </div>
-        )}
-        {cr.link && (
-          <a href={cr.link} target="_blank" rel="noreferrer" style={{ display: 'block', textAlign: 'center', marginTop: 8, fontSize: 10.5, fontWeight: 600, color: DEEP_TEAL, border: `1px solid ${SLATE_200}`, borderRadius: 6, padding: '5px 0' }}>
-            Open
-          </a>
-        )}
+        <PlayFooter cr={cr} big={big} />
+        <OpenLink href={cr.link} />
       </div>
     </div>
   )
