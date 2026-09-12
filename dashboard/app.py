@@ -26,6 +26,9 @@ st.set_page_config(page_title="Competitor Research Dashboard", layout="wide", pa
 # Fixed categorical order (validated: adjacent-pair CVD-safe) - one color per
 # platform, used consistently everywhere that platform appears (charts,
 # section headers, borders) so the eye learns "blue = Instagram" once.
+# Chrome (nav, hero, cards, chips) is themed separately below, sampled from
+# the Mavis HBS deck's teal/navy brand palette - the two systems are kept
+# independent so restyling the chrome never touches data-color safety.
 # ============================================================================
 PLATFORM = {
     "Instagram":   {"icon": "📸", "color": "#2a78d6"},
@@ -36,52 +39,147 @@ PLATFORM = {
     "X":           {"icon": "𝕏", "color": "#008300"},
     "Google Ads":  {"icon": "🔍", "color": "#4a3aa7"},
 }
-INK_PRIMARY = "#0b0b0b"
-INK_SECONDARY = "#52514e"
-INK_MUTED = "#898781"
-GRIDLINE = "#e1e0d9"
+INK_PRIMARY = "#0f2c30"
+INK_SECONDARY = "#4f6266"
+INK_MUTED = "#8ba0a4"
+GRIDLINE = "#e3edee"
 SURFACE = "#ffffff"
-PAGE_PLANE = "#f9f9f7"
-BORDER = "rgba(11,11,11,0.10)"
-EMPHASIS_GRAY = "#c3c2b7"
+PAGE_PLANE = "#f4f9f9"
+BORDER = "rgba(15,44,48,0.10)"
+EMPHASIS_GRAY = "#c7d3d4"
 
 FUNNEL_COLORS = {"See": "#2a78d6", "Think": "#eda100", "Do": "#e34948"}
 
+# ---- Brand chrome tokens (sampled from the Mavis HBS deck) ----
+TEAL_900 = "#0b3b40"   # hero gradient - dark end
+TEAL_700 = "#137079"   # hero gradient - mid
+TEAL_500 = "#1fb6c4"   # bright accent - active pill, links, rules
+TEAL_100 = "#d9f1f3"   # pale accent - pill fills, hover backgrounds
+CARD_BG = "#f4f8f8"
+DIVIDER = "#e2e9ea"
+
 st.markdown(f"""
 <style>
-    .block-container {{ padding-top: 1.5rem; max-width: 1200px; }}
-    [data-testid="stMetricValue"] {{ font-size: 1.7rem; }}
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap');
+
+    html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
+    h1, h2, h3, .ds-hero-title, .brand-title, [data-testid="stMetricValue"] {{
+        font-family: 'Poppins', sans-serif;
+    }}
+
+    .block-container {{ padding-top: 1.2rem; max-width: 1280px; }}
+
+    /* ---- Hero banner ---- */
+    .ds-hero {{
+        position: relative; overflow: hidden; border-radius: 18px;
+        padding: 2.1rem 2.4rem; margin-bottom: 1.1rem;
+        background: linear-gradient(115deg, {TEAL_900} 0%, {TEAL_700} 60%, {TEAL_500} 130%);
+        background-image:
+            radial-gradient(rgba(255,255,255,0.16) 1.4px, transparent 1.4px),
+            linear-gradient(115deg, {TEAL_900} 0%, {TEAL_700} 60%, {TEAL_500} 130%);
+        background-size: 16px 16px, 100% 100%;
+        background-position: right -10px top -10px, 0 0;
+    }}
+    .ds-hero-inner {{ position: relative; z-index: 1; max-width: 720px; }}
+    .ds-eyebrow-pill {{
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        background: rgba(255,255,255,0.14); color: #eafcfd;
+        border: 1px solid rgba(255,255,255,0.28);
+        padding: 0.28rem 0.85rem; border-radius: 999px;
+        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; margin-bottom: 0.9rem;
+    }}
+    .ds-hero-title {{
+        color: #ffffff; font-size: 2.1rem; font-weight: 800; margin: 0 0 0.35rem 0;
+        line-height: 1.15;
+    }}
+    .ds-hero-sub {{ color: rgba(255,255,255,0.82); font-size: 0.95rem; margin: 0; }}
+
+    /* ---- Top nav toolbar (Scope / View / context selectors) ---- */
+    .ds-toolbar {{
+        background: {SURFACE}; border: 1px solid {DIVIDER}; border-radius: 14px;
+        padding: 0.9rem 1.1rem 0.3rem 1.1rem; margin-bottom: 1.1rem;
+    }}
+    .ds-nav-label {{
+        font-size: 0.68rem; font-weight: 700; letter-spacing: 0.09em;
+        text-transform: uppercase; color: {TEAL_500}; margin: 0 0 0.35rem 0.1rem;
+    }}
+    div[data-testid="stPills"] label p {{
+        font-size: 0.68rem; font-weight: 700; letter-spacing: 0.09em;
+        text-transform: uppercase; color: {TEAL_500} !important;
+    }}
+    div[data-testid="stPills"] button {{
+        font-family: 'Inter', sans-serif; font-weight: 600; border-radius: 999px !important;
+    }}
+
+    /* ---- Active-view strip (--accent set per-page inline) ---- */
+    .ds-active-strip {{
+        display: flex; align-items: center; gap: 0.55rem;
+        background: {PAGE_PLANE};
+        background: color-mix(in srgb, var(--accent) 12%, white);
+        border-left: 4px solid var(--accent);
+        padding: 0.55rem 1rem; border-radius: 8px; margin-bottom: 1.2rem;
+        font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 0.95rem;
+        color: {INK_PRIMARY};
+    }}
+    .ds-active-strip .tag {{
+        font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em;
+        color: var(--accent); text-transform: uppercase; margin-right: 0.15rem;
+    }}
+
+    [data-testid="stMetricValue"] {{ font-size: 1.65rem; color: {INK_PRIMARY}; }}
     [data-testid="stMetric"] {{
         background: {SURFACE};
-        border: 1px solid {BORDER};
+        border: 1px solid {DIVIDER};
+        border-top: 3px solid {TEAL_500};
         border-radius: 10px;
         padding: 0.9rem 1rem 0.6rem 1rem;
     }}
+
+    /* ---- Section headers: eyebrow rule + bold title, deck-style ---- */
     .section-header {{
         display: flex; align-items: center; gap: 0.55rem;
-        margin: 2.2rem 0 0.9rem 0;
-        padding-bottom: 0.5rem;
-        border-bottom: 3px solid var(--accent);
+        margin: 2.3rem 0 1rem 0;
     }}
-    .section-header .icon {{ font-size: 1.4rem; }}
-    .section-header .title {{ font-size: 1.25rem; font-weight: 700; color: {INK_PRIMARY}; }}
+    .section-header .rule {{ flex: none; width: 46px; height: 3px; background: var(--accent); border-radius: 2px; }}
+    .section-header .rule-tail {{ flex: 1; height: 1px; background: {DIVIDER}; margin-left: 0.6rem; }}
+    .section-header .icon {{ font-size: 1.3rem; }}
+    .section-header .title {{
+        font-family: 'Poppins', sans-serif; font-size: 1.2rem; font-weight: 700; color: {INK_PRIMARY};
+    }}
+
     .brand-header {{
-        padding: 1.1rem 1.4rem; border-radius: 12px; margin-bottom: 1.1rem;
-        background: {PAGE_PLANE}; border: 1px solid {BORDER};
+        padding: 1.2rem 1.5rem; border-radius: 14px; margin-bottom: 1.1rem;
+        background: {CARD_BG}; border: 1px solid {DIVIDER};
     }}
     .brand-title {{ font-size: 1.7rem; font-weight: 800; color: {INK_PRIMARY}; }}
     .badge {{
-        display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px;
-        font-size: 0.72rem; font-weight: 700; letter-spacing: .02em;
+        display: inline-block; padding: 0.18rem 0.65rem; border-radius: 999px;
+        font-size: 0.7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
         margin-left: 0.6rem; vertical-align: middle;
     }}
-    .badge-own {{ background: #eaf3e6; color: #0ca30c; }}
-    .badge-competitor {{ background: #eef0f4; color: {INK_SECONDARY}; }}
+    .badge-own {{ background: {TEAL_100}; color: {TEAL_700}; }}
+    .badge-competitor {{ background: #eef2f2; color: {INK_SECONDARY}; }}
     .empty-note {{ color: {INK_MUTED}; font-style: italic; padding: 0.5rem 0 1.2rem 0; }}
     .card-caption {{ color: {INK_SECONDARY}; font-size: 0.82rem; line-height: 1.3;
                       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
                       overflow: hidden; margin: 0.3rem 0; }}
     .card-meta {{ color: {INK_MUTED}; font-size: 0.76rem; }}
+
+    /* ---- Card galleries: rounded, lift-on-hover ---- */
+    [data-testid="stVerticalBlockBorderWrapper"] {{
+        border-radius: 12px !important;
+        transition: box-shadow 0.15s ease, transform 0.15s ease;
+    }}
+    [data-testid="stVerticalBlockBorderWrapper"]:hover {{
+        box-shadow: 0 6px 18px rgba(15,44,48,0.10);
+        transform: translateY(-2px);
+    }}
+
+    /* ---- Buttons as pill chips ---- */
+    .stButton button, .stLinkButton a {{
+        border-radius: 999px !important; font-weight: 600;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -91,7 +189,9 @@ def section_header(platform: str, title: str):
     icon = PLATFORM[platform]["icon"]
     st.markdown(
         f'<div class="section-header" style="--accent:{color}">'
-        f'<span class="icon">{icon}</span><span class="title">{title}</span></div>',
+        f'<span class="rule"></span>'
+        f'<span class="icon">{icon}</span><span class="title">{title}</span>'
+        f'<span class="rule-tail"></span></div>',
         unsafe_allow_html=True,
     )
 
@@ -416,13 +516,24 @@ google_ads = load_google_ads()
 competitor_meta = load_competitor_meta()
 last_run = load_last_run()
 
-st.title("📊 Competitor Research Dashboard")
 if last_run is not None:
-    st.caption(f"Data current as of {last_run['run_date']:%Y-%m-%d %H:%M UTC} "
-               f"({last_run['run_type']} run, {last_run['status']})")
-if st.button("🔄 Refresh from database"):
-    st.cache_data.clear()
-    st.rerun()
+    _hero_sub = (f"Data current as of {last_run['run_date']:%b %d, %Y · %H:%M UTC} "
+                 f"&nbsp;·&nbsp; {last_run['run_type']} run &nbsp;·&nbsp; status: {last_run['status']}")
+else:
+    _hero_sub = "No scrape runs logged yet."
+st.markdown(
+    '<div class="ds-hero"><div class="ds-hero-inner">'
+    '<span class="ds-eyebrow-pill">● Competitive Intelligence</span>'
+    '<h1 class="ds-hero-title">Competitor Research Dashboard</h1>'
+    f'<p class="ds-hero-sub">{_hero_sub}</p>'
+    '</div></div>',
+    unsafe_allow_html=True,
+)
+_hero_spacer, _hero_refresh = st.columns([5, 1])
+with _hero_refresh:
+    if st.button("🔄 Refresh data", width="stretch"):
+        st.cache_data.clear()
+        st.rerun()
 
 if competitor_meta.empty:
     st.warning("No competitors in the database yet. Run `python -m scripts.init_db` first.")
@@ -440,7 +551,20 @@ for _widget_key, _pending_key in [
     if _pending_key in st.session_state:
         st.session_state[_widget_key] = st.session_state.pop(_pending_key)
 
-scope = st.sidebar.radio("Scope", ["All", "My brands only", "Competitors only"])
+with st.container():
+    st.markdown('<div class="ds-toolbar">', unsafe_allow_html=True)
+    _nav_col, _scope_col = st.columns([2.4, 1])
+    with _nav_col:
+        page = st.pills(
+            "VIEW", ["Brand Profile", "Category Detail", "Category Rollup", "Cross-Competitor Trends"],
+            key="nav_view", default="Brand Profile",
+        )
+    with _scope_col:
+        scope = st.pills("SCOPE", ["All", "My brands only", "Competitors only"], key="nav_scope", default="All")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+page = page or "Brand Profile"
+scope = scope or "All"
 
 
 def _scope_filter(df):
@@ -486,16 +610,10 @@ PAGE_BANNERS = {
     "Category Rollup": ("🗂️", "Category Rollup — All Categories", "#4a3aa7"),
     "Cross-Competitor Trends": ("📈", "Cross-Competitor Trends", "#008300"),
 }
-
-page = st.sidebar.radio(
-    "View", ["Brand Profile", "Category Detail", "Category Rollup", "Cross-Competitor Trends"],
-    key="nav_view",
-)
 _icon, _label, _color = PAGE_BANNERS[page]
 st.markdown(
-    f'<div style="background:{_color}1a;border-left:5px solid {_color};padding:0.5rem 1rem;'
-    f'border-radius:6px;margin-bottom:1rem;font-weight:700;font-size:1.05rem;">'
-    f'{_icon}&nbsp;&nbsp;YOU ARE VIEWING: {_label.upper()}</div>',
+    f'<div class="ds-active-strip" style="--accent:{_color}">'
+    f'<span class="tag">You are viewing</span>{_icon}&nbsp;{_label}</div>',
     unsafe_allow_html=True,
 )
 
@@ -507,7 +625,9 @@ if page == "Brand Profile":
         not competitor_meta.loc[competitor_meta["name"] == n, "is_own_brand"].iloc[0], n
     ))
     labels = {n: brand_label(n) for n in names_sorted}
-    chosen_label = st.sidebar.selectbox("Brand", [labels[n] for n in names_sorted], key="nav_brand_label")
+    st.markdown('<div class="ds-nav-label">Brand</div>', unsafe_allow_html=True)
+    chosen_label = st.selectbox("Brand", [labels[n] for n in names_sorted], key="nav_brand_label",
+                                 label_visibility="collapsed", width=420)
     competitor_name = next(n for n in names_sorted if labels[n] == chosen_label)
     meta_row = competitor_meta[competitor_meta["name"] == competitor_name].iloc[0]
 
@@ -859,7 +979,9 @@ elif page == "Category Detail":
 
     default_idx = all_categories.index(st.session_state["nav_category"]) \
         if st.session_state.get("nav_category") in all_categories else 0
-    category = st.sidebar.selectbox("Category", all_categories, index=default_idx, key="nav_category")
+    st.markdown('<div class="ds-nav-label">Category</div>', unsafe_allow_html=True)
+    category = st.selectbox("Category", all_categories, index=default_idx, key="nav_category",
+                             label_visibility="collapsed", width=420)
 
     st.header(f"📁 Category: {category}")
     brand_names = sorted(groups_meta.loc[groups_meta["group_name"] == category, "name"].unique())
@@ -902,10 +1024,12 @@ elif page == "Category Detail":
         st.markdown("**Zoom in on a brand:**")
         zoom_in_buttons(sub["competitor_name"].unique().tolist(), key_prefix=f"cat_{category}_{platform_key}")
 
-    channel = st.radio(
+    st.markdown('<div class="ds-nav-label">Channel</div>', unsafe_allow_html=True)
+    channel = st.pills(
         "Channel", ["Instagram", "TikTok", "YouTube", "X", "Ads", "Google Ads", "Website"],
-        horizontal=True, key="nav_category_channel",
+        key="nav_category_channel", default="Instagram", label_visibility="collapsed",
     )
+    channel = channel or "Instagram"
     st.divider()
 
     if channel == "Instagram":
@@ -973,7 +1097,9 @@ elif page == "Category Rollup":
     categories = sorted(g for g in groups_meta["group_name"].unique() if g != "Our Brands")
     own_brand_names = sorted(competitor_meta.loc[competitor_meta["is_own_brand"], "name"])
 
-    compare_choice = st.sidebar.selectbox("Compare against", ["My Brands (family average)"] + own_brand_names)
+    st.markdown('<div class="ds-nav-label">Compare against</div>', unsafe_allow_html=True)
+    compare_choice = st.selectbox("Compare against", ["My Brands (family average)"] + own_brand_names,
+                                   label_visibility="collapsed", width=420)
     reference_names = own_brand_names if compare_choice == "My Brands (family average)" else [compare_choice]
     reference_label = compare_choice
 
@@ -1083,7 +1209,9 @@ elif page == "Category Rollup":
 # ============================================================================================
 else:
     all_groups = sorted({g for row in posts_s["groups"] for g in (row or []) if g}) if not posts_s.empty else []
-    selected_groups = st.sidebar.multiselect("Competitive set(s)", all_groups, default=all_groups)
+    st.markdown('<div class="ds-nav-label">Competitive set(s)</div>', unsafe_allow_html=True)
+    selected_groups = st.pills("Competitive set(s)", all_groups, selection_mode="multi", default=all_groups,
+                                key="nav_trend_groups", label_visibility="collapsed")
     df = posts_s[posts_s["groups"].apply(lambda gs: any(g in selected_groups for g in (gs or [])))] \
         if selected_groups else posts_s
 

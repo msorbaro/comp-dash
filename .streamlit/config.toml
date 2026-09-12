@@ -1,0 +1,14 @@
+# Theme tokens sampled from the Mavis HBS Independent Study deck (dark teal
+# gradient covers, bright cyan-teal accent, navy-teal text) so native widgets
+# (pills, buttons, sliders, focus rings) pick up the brand accent automatically
+# instead of fighting Streamlit's default red via CSS overrides.
+[theme]
+base = "light"
+primaryColor = "#1FB6C4"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#EEF5F6"
+textColor = "#0F2C30"
+font = "sans serif"
+
+[server]
+headless = true
