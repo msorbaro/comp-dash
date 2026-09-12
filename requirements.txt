@@ -8,3 +8,5 @@ python-dotenv>=1.0
 PyYAML>=6.0
 Pillow>=10.0
 ImageHash>=4.3
+fastapi>=0.128
+uvicorn[standard]>=0.39

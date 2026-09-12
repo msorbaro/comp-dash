@@ -65,7 +65,8 @@ Researched via web search (lighter-touch pass than the competitor list — spot-
 - Several own brands show **0 currently-running Facebook ads** (Midas, NTB, Tire Kingdom, Town Fair Tire, Tuffy) — this may reflect that they simply aren't running Meta ads right now, or an incorrect `facebook_url` guess; not independently confirmed either way.
 - [x] **Backfill age cutoff removed** (2026-09-11) — the original 90-day age filter on first backfill was silently discarding real posts for lower-frequency accounts (found via a "Brakes Plus only has 1 post" bug report — live re-check showed 29 real posts from Feb-July 2025 that had been fetched and thrown away). Same bug also hit Mavis and Express Oil. `_insert_posts` no longer filters by post age at all; `results_limit`/`BACKFILL_MAX_POSTS` alone bounds how much is fetched (and paid for) per account. Ran a one-time full re-check across all 52 competitors to recover any other hidden history: Tuffy (+30, previously thought to have no Instagram at all — its handle had been corrected in config but never re-scraped), Town Fair Tire (+12), plus small (1-3 post) additions for GEICO, Take 5, Jiffy Lube, Quick Quack, Trader Joe's, PetSmart, Costco, Firestone, Mr. Appliance, and Amazon. 57 new posts total, all classified.
 - [x] **Card gallery clarity fix** (2026-09-11) — Brand Profile's per-platform "top posts/ads/videos" card galleries (capped at 6-8 items by design) had no caption distinguishing them from the true total, causing a "why does it only show 8?" report when the real count (shown in the stat tile above) was 30. Added a "Showing top N of M ..." caption above every capped gallery (Instagram, Ads, TikTok, YouTube, X, Google Ads, Google Ads conquest).
-- [x] **"Brand Signal" redesign** (2026-09-12) — user provided an exact Claude-design mockup (`new designs/Design System.dc.html` + `Brand Signal Dashboard.dc.html`, not committed - reference only) specifying colors, type, and component patterns down to the pixel, and asked to match it exactly. Rebuilt the dashboard's UI on top of that spec rather than the previous free-styled theme: dark ink (`#141A21`) top nav, teal/deep-teal/amber See/Think/Do palette, Poppins throughout, stat cards, stage bars, creative-evidence cards, ink panels, "Read:" takeaway lines. Restructured navigation into 4 screens (Landscape, Brand, Category, Compare) plus a Channel drill-down reached from Brand, replacing the old Brand Profile/Category Detail/Category Rollup/Cross-Competitor Trends pages. Added `dashboard/signal_data.py`: a real-data aggregation layer (channel_data/company_profile/category_profile/creative_rows) that computes every number the design calls for (90-day volume + trend, See/Think/Do split, content-type mix, 12-week cadence, representative real captions per stage, category outliers, a derived cross-channel "message consistency" score) from the actual scraped/classified tables - nothing fabricated, unlike the mock's invented dataset. Verified via a full AppTest sweep (52 brands x 11 categories x every channel drill-down x Compare) with zero failures; Streamlit stayed the right choice (no React needed) since the design is pure styled HTML/CSS with click-driven navigation.
+- [x] **"Brand Signal" redesign, attempt 1: Streamlit** (2026-09-12) — user provided an exact Claude-design mockup (`new designs/Design System.dc.html` + `Brand Signal Dashboard.dc.html`, not committed - reference only) specifying colors, type, and component patterns down to the pixel, and asked to match it exactly. Rebuilt the dashboard's UI on Streamlit with custom CSS: dark ink (`#141A21`) top nav, teal/deep-teal/amber See/Think/Do palette, Poppins throughout, stat cards, stage bars, creative-evidence cards. Two rounds of fixes against real screenshots still left visible gaps (a regressed nav bar, spacing/layout drift) - Streamlit's own widget DOM structure fights pixel-exact CSS control closely enough that this was the wrong tool for "match exactly."
+- [x] **"Brand Signal" redesign, attempt 2: React + FastAPI** (2026-09-12) — replaced the Streamlit app with `frontend/` (React + Vite, plain inline styles ported directly from the design files) and `backend/` (FastAPI wrapping `backend/signal_data.py` - the same real-data aggregation logic as before, just exposed over HTTP instead of called in-process). In production the FastAPI process also serves the built React app, so it's still one deployable service. Verified by actually rendering the app in headless Chromium (Playwright, installed locally into the project) and screenshotting all 5 screens - not just API/logic tests - confirming a close pixel match to the reference screenshots/PDF. `dashboard/app.py` (Streamlit) is left in the repo unmaintained; `backend/`+`frontend/` are the live app now. See README's "Dashboard (Brand Signal)" section for how to run both pieces.
 
 ## Dashboard scope (per competitor + summary)
 **Per-competitor view:**
@@ -111,9 +112,20 @@ categorize/
 scripts/
   init_db.py                 # creates schema, seeds competitors/categories from config/competitors.yaml
   run_weekly.py              # orchestrates ingest -> categorize -> log, writes logs/YYYY-MM-DD.md
-dashboard/
-  app.py                     # Streamlit dashboard ("Brand Signal" - see below)
-  signal_data.py             # real-data aggregation layer backing the Brand Signal screens
+backend/
+  main.py                    # FastAPI app: /api/* endpoints + serves frontend/dist in production
+  data_loaders.py            # DB queries (TTL-cached), a framework-agnostic port of the old Streamlit loaders
+  signal_data.py             # real-data aggregation layer backing every Brand Signal screen
+frontend/                    # React + Vite app ("Brand Signal") - see README for dev/build commands
+  src/
+    App.jsx                  # top-level nav state machine (landscape/brand/channel/category/compare)
+    api.js                   # fetch wrappers for the backend
+    styles.js                # design tokens + style-builder helpers ported from the design files
+    components/               # Header, ContextBar, shared widgets (StageBar, CreativeCard, etc.)
+    screens/                  # Landscape.jsx, Brand.jsx, Channel.jsx, Category.jsx, Compare.jsx
+dashboard/                   # OLD Streamlit app - unmaintained, superseded by backend/ + frontend/
+  app.py
+  signal_data.py
 .github/workflows/
   weekly_scrape.yml          # cron trigger for scripts/run_weekly.py
 logs/

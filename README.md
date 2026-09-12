@@ -72,8 +72,7 @@ python -m scripts.init_db
 # 2. First historical pull (up to BACKFILL_MAX_POSTS per account, default 40)
 python -m scripts.run_weekly --backfill
 
-# 3. View the dashboard
-streamlit run dashboard/app.py
+# 3. View the dashboard - see "Dashboard (Brand Signal)" below
 ```
 
 After that, the GitHub Actions workflow (`.github/workflows/weekly_scrape.yml`) runs
@@ -81,8 +80,39 @@ automatically every Monday and appends a log to `logs/YYYY-MM-DD.md`. You can al
 trigger it manually any time from the repo's **Actions** tab ("Run workflow"), or run
 `python -m scripts.run_weekly` locally.
 
-To see this week's new data in the dashboard, just click **Refresh from database** in
-the app (or restart it) — it always reads from Supabase, never re-scrapes on its own.
+To see this week's new data in the dashboard, click the **refresh** control in the app
+(or restart the backend) — it always reads from Supabase, never re-scrapes on its own.
+
+## Dashboard ("Brand Signal")
+
+The dashboard is a React frontend (`frontend/`) backed by a small FastAPI service
+(`backend/`) that wraps `backend/signal_data.py` - the same real-data aggregation logic
+either way, just exposed over HTTP instead of called directly. In production the FastAPI
+process serves the built React app too, so it's one deployable service.
+
+**One-time setup:**
+```bash
+pip install -r requirements.txt          # adds fastapi + uvicorn
+cd frontend && npm install && cd ..      # needs Node 22.12+ (or any recent LTS)
+```
+
+**Day-to-day dev** (two terminals - the frontend dev server proxies `/api` to the backend):
+```bash
+# terminal 1
+cd backend && uvicorn main:app --reload --port 8010
+
+# terminal 2
+cd frontend && npm run dev              # opens on http://localhost:5173
+```
+
+**Production-style run** (what actually gets deployed - one process, one URL):
+```bash
+cd frontend && npm run build            # writes frontend/dist
+cd ../backend && uvicorn main:app --port 8010   # now also serves the built frontend at /
+```
+
+The old Streamlit app (`dashboard/app.py`) is still in the repo but no longer maintained -
+`backend/` + `frontend/` fully replace it.
 
 ### Note on Facebook/TikTok/YouTube/X handles
 `config/competitors.yaml` doesn't hardcode a `facebook_url`, `tiktok_handle`, `youtube_url`,
@@ -93,6 +123,7 @@ for an error on that competitor, find their real handle/URL, and add an explicit
 them in `config/competitors.yaml`, then re-run `python -m scripts.init_db`.
 
 ## Going live later
-The dashboard code doesn't need to change to be deployed publicly — e.g. push this repo
-to Streamlit Community Cloud and set the same three secrets there. It already reads from
-the same hosted database as local dev and the weekly job.
+Build the frontend (`npm run build`) and deploy `backend/` (which serves both the API and
+the built frontend) as a single web service - e.g. Render, Railway, or Fly.io - with the
+same `DATABASE_URL`/`APIFY_TOKEN`/`ANTHROPIC_API_KEY` secrets as local dev and the weekly
+job. It already reads from the same hosted Supabase database either way.

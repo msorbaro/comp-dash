@@ -7,3 +7,7 @@ venv/
 .streamlit/secrets.toml
 .claude/
 *.pdf
+*.png
+.tools/
+frontend/node_modules/
+frontend/dist/
