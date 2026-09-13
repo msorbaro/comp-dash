@@ -2,8 +2,12 @@ const BASE = '/api'
 
 // A 503 means the page is warming up in the background on the server (see
 // backend/main.py's _page_cache) - retry quietly instead of surfacing an
-// error, since it resolves itself within a couple of minutes at most.
-async function get(path, { retries = 20, retryDelayMs = 5000 } = {}) {
+// error. The warm loop computes pages one at a time (landscape, then the
+// Our Brands rollup, then each own brand in turn), so right after a cold
+// start/restart a brand near the end of that queue can take several
+// minutes to be ready - the retry budget below is sized for that worst
+// case, not just the fast/common case of an already-warm cache.
+async function get(path, { retries = 60, retryDelayMs = 5000 } = {}) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(BASE + path)
     if (res.ok) return res.json()
