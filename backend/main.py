@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import hashlib
 import math
 import os
+import threading
+import time
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -382,6 +384,29 @@ def get_compare(a: str, b: str):
 def refresh_cache():
     dl.clear_cache()
     return {"status": "ok"}
+
+
+def _warm_cache_loop():
+    # On a CPU-throttled free-tier host, the expensive pages (Landscape,
+    # Category, each own brand) are too slow to compute inline on a user's
+    # request. Compute them here on a timer instead, straight into the same
+    # ttl_cache/synthesize caches real requests read from, so a visitor
+    # almost always hits a warm cache. Runs in a plain thread (not an async
+    # task) because these route functions do blocking pandas/DB/LLM work.
+    time.sleep(20)  # let the app finish booting first
+    while True:
+        try:
+            get_landscape()
+            get_category("Our Brands")
+            for name in _all_brand_names():
+                if _brand_category(name) == "Our Brands":
+                    get_brand(name)
+        except Exception as e:
+            print(f"[warm-cache] cycle failed: {e}", flush=True)
+        time.sleep(480)  # 8 minutes: under Render free tier's 15-min idle sleep
+
+
+threading.Thread(target=_warm_cache_loop, daemon=True).start()
 
 
 # Serve the built React app (frontend/dist) if present, so this one process
