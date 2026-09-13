@@ -6,11 +6,20 @@ import { competesBadgeStyle, fmtNum, verdict, mixLabel, attributeRows, STAGES, M
 
 export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
   const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
 
-  useEffect(() => {
-    api.landscape().then(setData)
-  }, [])
+  const load = () => {
+    setError(null)
+    api.landscape().then(setData).catch((e) => setError(e.message))
+  }
+  useEffect(load, [])
 
+  if (error) return (
+    <div style={{ padding: 40, color: MUTED }}>
+      Couldn't load this page ({error}).{' '}
+      <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
+    </div>
+  )
   if (!data) return <div style={{ padding: 40, color: MUTED }}>Loading…</div>
 
   const totalBrands = meta.brands.length

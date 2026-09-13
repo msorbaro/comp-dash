@@ -1,9 +1,18 @@
 const BASE = '/api'
 
-async function get(path) {
-  const res = await fetch(BASE + path)
-  if (!res.ok) throw new Error(`${path} -> ${res.status}`)
-  return res.json()
+// A 503 means the page is warming up in the background on the server (see
+// backend/main.py's _page_cache) - retry quietly instead of surfacing an
+// error, since it resolves itself within a couple of minutes at most.
+async function get(path, { retries = 20, retryDelayMs = 5000 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(BASE + path)
+    if (res.ok) return res.json()
+    if (res.status === 503 && attempt < retries) {
+      await new Promise((r) => setTimeout(r, retryDelayMs))
+      continue
+    }
+    throw new Error(`${path} -> ${res.status}`)
+  }
 }
 
 export const api = {

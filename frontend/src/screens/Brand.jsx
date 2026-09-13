@@ -12,17 +12,20 @@ const SECTION_CREATIVE_FETCH_N = 16 // headroom so a content-type click still ha
 
 export default function Brand({ meta, brand, onBrandChange, onOpenChannel, onOpenCategory }) {
   const [profile, setProfile] = useState(null)
+  const [error, setError] = useState(null)
   const [channelCreatives, setChannelCreatives] = useState({})
   const [typeFilters, setTypeFilters] = useState({})
   const [filteredCreatives, setFilteredCreatives] = useState({})
 
-  useEffect(() => {
+  const load = () => {
     setProfile(null)
+    setError(null)
     setChannelCreatives({})
     setTypeFilters({})
     setFilteredCreatives({})
-    api.brand(brand).then(setProfile)
-  }, [brand])
+    api.brand(brand).then(setProfile).catch((e) => setError(e.message))
+  }
+  useEffect(load, [brand])
 
   useEffect(() => {
     if (!profile) return
@@ -52,6 +55,12 @@ export default function Brand({ meta, brand, onBrandChange, onOpenChannel, onOpe
     }
   }
 
+  if (error) return (
+    <div style={{ padding: 40, color: MUTED }}>
+      Couldn't load this brand ({error}).{' '}
+      <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
+    </div>
+  )
   if (!profile) return <div style={{ padding: 40, color: MUTED }}>Loading…</div>
 
   // Channel summary order: currently-active channels first, dormant ones

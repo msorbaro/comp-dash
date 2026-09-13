@@ -6,11 +6,14 @@ import { fmtNum, verdict, mixLabel, attributeRows, STAGES, MUTED, INK_TEXT, SLAT
 
 export default function Category({ meta, category, focusBrand, allCategories, onCategoryChange, onOpenBrand }) {
   const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
 
-  useEffect(() => {
+  const load = () => {
     setData(null)
-    api.category(category, focusBrand).then(setData)
-  }, [category, focusBrand])
+    setError(null)
+    api.category(category, focusBrand).then(setData).catch((e) => setError(e.message))
+  }
+  useEffect(load, [category, focusBrand])
 
   return (
     <div>
@@ -39,7 +42,12 @@ export default function Category({ meta, category, focusBrand, allCategories, on
         })}
       </div>
 
-      {!data ? <div style={{ padding: 40, color: MUTED }}>Loading…</div> : (
+      {error ? (
+        <div style={{ padding: 40, color: MUTED }}>
+          Couldn't load this category ({error}).{' '}
+          <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
+        </div>
+      ) : !data ? <div style={{ padding: 40, color: MUTED }}>Loading…</div> : (
         <>
           <div style={{ background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '22px 24px', marginBottom: 14 }}>
             <div style={{ fontSize: 10, letterSpacing: '.15em', color: TEAL_700, fontWeight: 600 }}>CATEGORY ROLLUP</div>

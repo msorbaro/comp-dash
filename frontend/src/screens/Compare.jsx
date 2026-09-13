@@ -6,11 +6,14 @@ import { fmtNum, verdict, engagementUnitLabel, MUTED, INK, SLATE_200, SLATE_600,
 
 export default function Compare({ meta, brandA, brandB, onBrandAChange, onBrandBChange }) {
   const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
 
-  useEffect(() => {
+  const load = () => {
     setData(null)
-    api.compare(brandA, brandB).then(setData)
-  }, [brandA, brandB])
+    setError(null)
+    api.compare(brandA, brandB).then(setData).catch((e) => setError(e.message))
+  }
+  useEffect(load, [brandA, brandB])
 
   return (
     <div>
@@ -36,7 +39,12 @@ export default function Compare({ meta, brandA, brandB, onBrandAChange, onBrandB
         </div>
       </div>
 
-      {!data ? <div style={{ padding: 40, color: MUTED }}>Loading…</div> : (
+      {error ? (
+        <div style={{ padding: 40, color: MUTED }}>
+          Couldn't load this comparison ({error}).{' '}
+          <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
+        </div>
+      ) : !data ? <div style={{ padding: 40, color: MUTED }}>Loading…</div> : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
             {[data.a, data.b].map((p, i) => {

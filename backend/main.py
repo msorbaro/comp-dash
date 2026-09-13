@@ -96,6 +96,44 @@ def _clean(obj):
     return obj
 
 
+# Result-level cache for the expensive pages (landscape, category rollups,
+# brand deep-dives). data_loaders/synthesize only cache the raw DataFrames
+# and individual LLM calls - the pandas aggregation across brands/channels
+# in signal_data.py still re-ran on every request. On Render's throttled
+# free-tier CPU that aggregation alone can take longer than the platform's
+# own connection timeout, so a live request must never compute it inline -
+# it has to read a result the background warm-up thread already produced.
+_page_cache: dict = {}
+_page_cache_lock = threading.Lock()
+_PAGE_CACHE_TTL = 600  # seconds - warm thread refreshes every 480s, comfortably inside this
+
+
+def _cached_page(key, compute_fn, block_on_miss: bool = True, ttl=_PAGE_CACHE_TTL):
+    """block_on_miss=False (used for the pages the warm thread keeps fresh)
+    never computes inline: it serves whatever is cached, even if stale (the
+    warm thread will refresh it again shortly), and returns None only when
+    nothing has been computed for this key yet at all."""
+    with _page_cache_lock:
+        entry = _page_cache.get(key)
+    if entry is not None:
+        fresh = ttl is None or (time.time() - entry[0]) < ttl
+        if fresh or not block_on_miss:
+            return entry[1]
+    if not block_on_miss:
+        return None
+    result = compute_fn()
+    with _page_cache_lock:
+        _page_cache[key] = (time.time(), result)
+    return result
+
+
+def _refresh_page(key, compute_fn):
+    result = compute_fn()
+    with _page_cache_lock:
+        _page_cache[key] = (time.time(), result)
+    return result
+
+
 def _get_data():
     return dl.load_all()
 
@@ -155,6 +193,13 @@ def get_meta():
 
 @app.get("/api/landscape")
 def get_landscape():
+    result = _cached_page("landscape", _compute_landscape, block_on_miss=False)
+    if result is None:
+        raise HTTPException(503, "Still warming up after a restart - this can take a minute or two on first load. Refresh shortly.")
+    return result
+
+
+def _compute_landscape():
     data = _get_data()
     gm = _groups_meta()
     categories = _all_categories()
@@ -262,9 +307,20 @@ def _attach_synthesis(name: str, r: dict, data: dict) -> dict:
 
 @app.get("/api/brand/{name}")
 def get_brand(name: str):
-    data = _get_data()
     if name not in _all_brand_names():
         raise HTTPException(404, f"Unknown brand: {name}")
+    # Our own brands are kept warm by the background thread (like Landscape
+    # and the "Our Brands" rollup) - never computed inline on a request.
+    if _brand_category(name) == "Our Brands":
+        result = _cached_page(f"brand:{name}", lambda: _compute_brand(name), block_on_miss=False)
+        if result is None:
+            raise HTTPException(503, "Still warming up after a restart - this can take a minute or two on first load. Refresh shortly.")
+        return result
+    return _cached_page(f"brand:{name}", lambda: _compute_brand(name))
+
+
+def _compute_brand(name: str):
+    data = _get_data()
     profile = sd.company_profile(name, data)
     rows = [{k: v for k, v in r.items() if k not in ("_sub", "_date_col")} for r in profile["rows"]]
     rows = [_attach_synthesis(name, r, data) for r in rows]
@@ -293,10 +349,27 @@ def get_channel(name: str, channel_id: str, n_creatives: int = 8, type_filter: s
 
 @app.get("/api/category/{name}")
 def get_category(name: str, focus_brand: str = ""):
-    data = _get_data()
-    gm = _groups_meta()
     if name not in _all_categories():
         raise HTTPException(404, f"Unknown category: {name}")
+    # focus_brand only tweaks an is_focus flag on the already-computed
+    # result, so it's applied as a cheap post-step rather than fragmenting
+    # the cache (or, for "Our Brands", forcing a live recompute) per brand.
+    if name == "Our Brands":
+        # This is the page our own team actually lives in, so it's kept
+        # warm by the background thread like Landscape - never computed inline.
+        result = _cached_page("category:Our Brands", lambda: _compute_category(name), block_on_miss=False)
+        if result is None:
+            raise HTTPException(503, "Still warming up after a restart - this can take a minute or two on first load. Refresh shortly.")
+    else:
+        result = _cached_page(f"category:{name}", lambda: _compute_category(name))
+    if focus_brand:
+        result = {**result, "members": [{**m, "is_focus": m["company"] == focus_brand} for m in result["members"]]}
+    return result
+
+
+def _compute_category(name: str):
+    data = _get_data()
+    gm = _groups_meta()
     brand_names = sorted(gm.loc[gm["group_name"] == name, "name"].unique())
     cp = sd.category_profile(name, brand_names, data)
     members = sorted(cp["profiles"], key=lambda p: -p["mix"][0])
@@ -338,7 +411,7 @@ def get_category(name: str, focus_brand: str = ""):
         "members": [
             {"company": m["company"], "mix": m["mix"], "monthly_output": m["monthly_output"],
              "active_channels": m["active_channels"],
-             "is_outlier": m["company"] in outlier_names, "is_focus": m["company"] == focus_brand}
+             "is_outlier": m["company"] in outlier_names, "is_focus": False}
             for m in members
         ],
         "channel_rows": channel_rows,
@@ -383,24 +456,27 @@ def get_compare(a: str, b: str):
 @app.post("/api/refresh")
 def refresh_cache():
     dl.clear_cache()
+    with _page_cache_lock:
+        _page_cache.clear()
     return {"status": "ok"}
 
 
 def _warm_cache_loop():
     # On a CPU-throttled free-tier host, the expensive pages (Landscape,
-    # Category, each own brand) are too slow to compute inline on a user's
-    # request. Compute them here on a timer instead, straight into the same
-    # ttl_cache/synthesize caches real requests read from, so a visitor
-    # almost always hits a warm cache. Runs in a plain thread (not an async
-    # task) because these route functions do blocking pandas/DB/LLM work.
+    # the "Our Brands" rollup, each own brand) are too slow to compute
+    # inline within a user's request - Render's own edge/proxy drops the
+    # connection well before a cold computation finishes. Compute them here
+    # on a timer instead, straight into _page_cache, so a live request only
+    # ever reads an already-finished result. Runs in a plain thread (not an
+    # async task) because this is blocking pandas/DB/LLM work.
     time.sleep(20)  # let the app finish booting first
     while True:
         try:
-            get_landscape()
-            get_category("Our Brands")
+            _refresh_page("landscape", _compute_landscape)
+            _refresh_page("category:Our Brands", lambda: _compute_category("Our Brands"))
             for name in _all_brand_names():
                 if _brand_category(name) == "Our Brands":
-                    get_brand(name)
+                    _refresh_page(f"brand:{name}", lambda name=name: _compute_brand(name))
         except Exception as e:
             print(f"[warm-cache] cycle failed: {e}", flush=True)
         time.sleep(480)  # 8 minutes: under Render free tier's 15-min idle sleep
