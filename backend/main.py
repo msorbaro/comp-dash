@@ -487,18 +487,19 @@ def get_landscape_volume(category: str = "Our Brands", days: int = 90):
     if days not in (30, 90, 180, 365):
         raise HTTPException(400, "days must be 30, 90, 180, or 365")
 
-    def compute():
-        data = _get_data()
-        gm = _groups_meta()
-        brand_names = sorted(gm.loc[gm["group_name"] == category, "name"].unique())
-        rows = sd.company_volume_breakdown(brand_names, data, days=days)
-        meta = _competitor_meta()
-        for r in rows:
-            r["logo_url"] = _logo_url(r["company"], meta)
-        rows.sort(key=lambda r: -r["total"])
-        return _clean({"category": category, "days": days, "rows": rows})
+    return _cached_page(f"volume:{category}:{days}", lambda: _compute_volume(category, days))
 
-    return _cached_page(f"volume:{category}:{days}", compute)
+
+def _compute_volume(category: str, days: int):
+    data = _get_data()
+    gm = _groups_meta()
+    brand_names = sorted(gm.loc[gm["group_name"] == category, "name"].unique())
+    rows = sd.company_volume_breakdown(brand_names, data, days=days)
+    meta = _competitor_meta()
+    for r in rows:
+        r["logo_url"] = _logo_url(r["company"], meta)
+    rows.sort(key=lambda r: -r["total"])
+    return _clean({"category": category, "days": days, "rows": rows})
 
 
 @app.post("/api/refresh")
@@ -525,6 +526,15 @@ def _warm_cache_loop():
             for name in _all_brand_names():
                 if _brand_category(name) == "Our Brands":
                     _refresh_page(f"brand:{name}", lambda name=name: _compute_brand(name))
+            # Default view for each Landscape volume-chart section (Posting
+            # Cadence, Brand Matrix, Value Map) - each fetches "Our Brands"
+            # plus a comparison category at a specific `days` window on
+            # first load. Not warming these left every one of those charts
+            # doing a live 3-4s compute on a cache that expired every 10
+            # minutes - the dominant remaining source of "feels slow".
+            for category in ("Our Brands", "Automotive Full Service"):
+                for days in (90, 365):
+                    _refresh_page(f"volume:{category}:{days}", lambda c=category, d=days: _compute_volume(c, d))
         except Exception as e:
             print(f"[warm-cache] cycle failed: {e}", flush=True)
         time.sleep(480)  # 8 minutes: under Render free tier's 15-min idle sleep
