@@ -15,6 +15,7 @@ import math
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -359,16 +360,15 @@ def _compute_brand(name: str):
     })
 
 
-# The exact (n_creatives, type_filter) combos the frontend requests with no
-# further user action - see frontend/src/screens/Brand.jsx's
-# SECTION_CREATIVE_FETCH_N (the per-channel preview on the Brand page) and
-# frontend/src/screens/Channel.jsx's CREATIVE_FETCH_N (the "See all"/full
-# channel detail page, always fetched uncapped and unfiltered on load).
-# Only these are worth proactively warming; a content-type filter click is
-# a user-initiated, one-off request that can afford to compute live.
+# The exact (n_creatives, type_filter) the Brand page requests on initial
+# load for every channel row - see frontend/src/screens/Brand.jsx's
+# SECTION_CREATIVE_FETCH_N. Only this combo is proactively warmed in the
+# background: the Channel "See all" page's much larger n=500 fetch stays
+# on live-compute-then-cache instead, since it's a less-common,
+# user-initiated click, not something worth costing every brand's warm
+# cycle more (that made ALL brands' channel data take much longer to
+# warm - a real regression, since the loop is per-brand-then-per-channel).
 _DEFAULT_CHANNEL_N = 16
-_FULL_CHANNEL_N = 500
-_WARMED_CHANNEL_COMBOS = (_DEFAULT_CHANNEL_N, _FULL_CHANNEL_N)
 
 
 @app.get("/api/brand/channel")
@@ -376,7 +376,7 @@ def get_channel(name: str, channel_id: str, n_creatives: int = 8, type_filter: s
     if channel_id not in sd.CHANNEL_BY_ID:
         raise HTTPException(404, f"Unknown channel: {channel_id}")
     key = f"channel:{name}:{channel_id}:{n_creatives}:{type_filter}"
-    is_default_view = n_creatives in _WARMED_CHANNEL_COMBOS and not type_filter
+    is_default_view = n_creatives == _DEFAULT_CHANNEL_N and not type_filter
     if is_default_view and _brand_category(name) == "Our Brands":
         result = _cached_page(key, lambda: _compute_channel(name, channel_id, n_creatives, type_filter), block_on_miss=False)
         if result is None:
@@ -546,31 +546,64 @@ def _warm_cache_loop():
         try:
             _refresh_page("landscape", _compute_landscape)
             _refresh_page("category:Our Brands", lambda: _compute_category("Our Brands"))
-            for name in _all_brand_names():
-                if _brand_category(name) == "Our Brands":
-                    _refresh_page(f"brand:{name}", lambda name=name: _compute_brand(name))
-                    # The Brand deep-dive page fires one of these per active
-                    # channel on load, and the "See all" / channel-detail
-                    # page fires the _FULL_CHANNEL_N variant - both were
-                    # previously totally uncached, so every visit re-ran
-                    # synthesis + creative loading from scratch. This was
-                    # the real "brand/channel page is so slow" cause.
-                    for ch in sd.CHANNELS:
-                        for n in _WARMED_CHANNEL_COMBOS:
-                            key = f"channel:{name}:{ch['id']}:{n}:"
-                            _refresh_page(key, lambda name=name, ch_id=ch["id"], n=n: _compute_channel(name, ch_id, n, ""))
-            # Default view for each Landscape volume-chart section (Posting
-            # Cadence, Brand Matrix, Value Map) - each fetches "Our Brands"
-            # plus a comparison category at a specific `days` window on
-            # first load. Not warming these left every one of those charts
-            # doing a live 3-4s compute on a cache that expired every 10
-            # minutes - the dominant remaining source of "feels slow".
-            for category in ("Our Brands", "Automotive Full Service"):
-                for days in (90, 365):
-                    _refresh_page(f"volume:{category}:{days}", lambda c=category, d=days: _compute_volume(c, d))
+            our_brand_names = [n for n in _all_brand_names() if _brand_category(n) == "Our Brands"]
+
+            # Every brand/channel/category combo below is independent and
+            # dominated by I/O wait (LLM calls, DB reads), not CPU - running
+            # them one at a time made a full cold cycle take many minutes
+            # (confirmed: 148s locally just for 9 brands' main pages,
+            # sequentially, on a fast machine with a fast network - Render's
+            # throttled CPU made the live version far worse, and one slow
+            # brand blocked every other brand's page from ever becoming
+            # available). A thread pool runs them concurrently instead;
+            # _safe_refresh keeps one failing brand/channel from aborting
+            # the rest of the batch.
+            with ThreadPoolExecutor(max_workers=9) as pool:
+                # Pass 1: every own brand's main page, all at once.
+                list(pool.map(
+                    lambda name: _safe_refresh(f"brand:{name}", lambda: _compute_brand(name)),
+                    our_brand_names,
+                ))
+                # Pass 2: the Brand deep-dive page fires one of these per
+                # active channel on load - previously totally uncached, so
+                # every visit re-ran synthesis + creative loading from
+                # scratch. Only the (16, "") preview combo is warmed here;
+                # "See all" (500) is a less-common, user-initiated click
+                # and stays on live-compute-then-cache instead of costing
+                # every warm cycle more.
+                channel_tasks = [(name, ch["id"]) for ch in sd.CHANNELS for name in our_brand_names]
+                list(pool.map(
+                    lambda t: _safe_refresh(
+                        f"channel:{t[0]}:{t[1]}:{_DEFAULT_CHANNEL_N}:",
+                        lambda: _compute_channel(t[0], t[1], _DEFAULT_CHANNEL_N, ""),
+                    ),
+                    channel_tasks,
+                ))
+                # Default view for each Landscape volume-chart section
+                # (Posting Cadence, Brand Matrix, Value Map) - each fetches
+                # "Our Brands" plus a comparison category at a specific
+                # `days` window on first load. Not warming these left every
+                # one of those charts doing a live 3-4s compute on a cache
+                # that expired every 10 minutes.
+                volume_tasks = [(c, d) for c in ("Our Brands", "Automotive Full Service") for d in (90, 365)]
+                list(pool.map(
+                    lambda t: _safe_refresh(f"volume:{t[0]}:{t[1]}", lambda: _compute_volume(t[0], t[1])),
+                    volume_tasks,
+                ))
         except Exception as e:
             print(f"[warm-cache] cycle failed: {e}", flush=True)
         time.sleep(480)  # 8 minutes: under Render free tier's 15-min idle sleep
+
+
+def _safe_refresh(key, compute_fn):
+    """Same as _refresh_page, but swallows its own exception so one bad
+    brand/channel in a parallel warm batch doesn't take the rest down with
+    it (ThreadPoolExecutor.map re-raises on the first failed result when
+    you iterate it)."""
+    try:
+        _refresh_page(key, compute_fn)
+    except Exception as e:
+        print(f"[warm-cache] {key} failed: {e}", flush=True)
 
 
 threading.Thread(target=_warm_cache_loop, daemon=True).start()
