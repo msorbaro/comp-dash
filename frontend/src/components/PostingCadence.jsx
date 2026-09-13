@@ -114,13 +114,17 @@ const selectStyle = {
   color: DEEP_TEAL, background: '#FFFFFF', fontFamily: 'Poppins, sans-serif', cursor: 'pointer',
 }
 
+// A small caption above each pill row so it's clear which buttons act as
+// one group (which one is "on") vs. just a loose row of unrelated buttons.
+const groupLabelStyle = { fontSize: 9, letterSpacing: '.1em', color: MUTED, fontWeight: 600, marginBottom: 6 }
+
 // Self-contained: fetches its own two datasets - Our Brands (fixed) and a
 // selectable comparison category (default: Automotive Full Service, the
 // closest direct-competitor set) - and owns the toggle state, so
 // Landscape.jsx just drops this section in.
 export default function PostingCadence({ categories }) {
   const [days, setDays] = useState(90)
-  const [mode, setMode] = useState('stage')
+  const [mode, setMode] = useState('attribute')
   const [view, setView] = useState('count')
   const [compareCategory, setCompareCategory] = useState('Automotive Full Service')
   const [ours, setOurs] = useState(null)
@@ -148,20 +152,29 @@ export default function PostingCadence({ categories }) {
             How often each company posts, and what that output is made of - the Mavis family against any category you pick.
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 5 }}>
-            {DAY_OPTIONS.map((d) => (
-              <Pill key={d} active={days === d} onClick={() => setDays(d)}>{d}d</Pill>
-            ))}
+        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+          <div>
+            <div style={groupLabelStyle}>TIME WINDOW</div>
+            <div style={{ display: 'flex', gap: 5 }}>
+              {DAY_OPTIONS.map((d) => (
+                <Pill key={d} active={days === d} onClick={() => setDays(d)}>{d}d</Pill>
+              ))}
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 5 }}>
-            {MODES.map((m) => (
-              <Pill key={m.key} active={mode === m.key} onClick={() => setMode(m.key)}>{m.label}</Pill>
-            ))}
+          <div>
+            <div style={groupLabelStyle}>BREAK DOWN BY</div>
+            <div style={{ display: 'flex', gap: 5 }}>
+              {MODES.map((m) => (
+                <Pill key={m.key} active={mode === m.key} onClick={() => setMode(m.key)}>{m.label}</Pill>
+              ))}
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 5 }}>
-            <Pill active={view === 'count'} onClick={() => setView('count')}>Volume</Pill>
-            <Pill active={view === 'pct'} onClick={() => setView('pct')}>Mix %</Pill>
+          <div>
+            <div style={groupLabelStyle}>SHOW AS</div>
+            <div style={{ display: 'flex', gap: 5 }}>
+              <Pill active={view === 'count'} onClick={() => setView('count')}>Volume</Pill>
+              <Pill active={view === 'pct'} onClick={() => setView('pct')}>Mix %</Pill>
+            </div>
           </div>
         </div>
       </div>
