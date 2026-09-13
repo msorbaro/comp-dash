@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { MUTED, INK_TEXT, SLATE_400, SLATE_200, DEEP_TEAL } from '../styles'
+import { MUTED, INK_TEXT, SLATE_200, DEEP_TEAL } from '../styles'
 
 // A full year, consistent with the brand-position matrix - steadier,
 // more representative numbers than a shorter rolling window.
@@ -8,9 +8,7 @@ const DAYS = 365
 
 // The value-prop rows, top to bottom - reusing the existing, already
 // classified message-attribute taxonomy exactly as-is (no new
-// classification work): the customer-facing value props that don't map to
-// an existing attribute (Widest Selection, Free Maintenance) aren't
-// included here rather than shown as a guess.
+// classification work).
 const VALUE_PROPS = [
   'Safety & Protection',
   'Trust & Reliability',
@@ -21,24 +19,38 @@ const VALUE_PROPS = [
   'Quality & Craftsmanship',
 ]
 
-const W = 760, ROW_H = 46, PAD_TOP = 16, PAD_BOTTOM = 34
-const LABEL_W = 220, PLOT_R_PAD = 60
+const ROW_H = 42, PAD_TOP = 14, PAD_BOTTOM = 46
 const HEIGHT = PAD_TOP + PAD_BOTTOM + ROW_H * (VALUE_PROPS.length - 1)
+const LABEL_W = 190, CHART_W = 260, RIGHT_MARGIN = 20
+const W = LABEL_W + CHART_W + RIGHT_MARGIN
 
-// Sum raw attribute counts across every company in a group - the real
-// share of everything that group has actually posted in the window, same
-// denominator convention used everywhere else in this app (full
-// classified total, not renormalized to just the shown attributes).
-function aggregate(rows) {
-  const totals = {}
-  let classifiedTotal = 0
-  for (const r of rows) {
-    for (const [k, v] of Object.entries(r.by_attribute || {})) {
-      totals[k] = (totals[k] || 0) + v
-      classifiedTotal += v
-    }
-  }
-  return { totals, classifiedTotal }
+// One color per line, reused by position (not tied to any other chart's
+// meaning) - enough distinct hues for the largest group (Our Brands, 9).
+const BRAND_COLORS = [
+  '#0B4F55', '#D97706', '#7C3AED', '#DC2626', '#2563EB', '#16A34A',
+  '#DB2777', '#0EA5E9', '#CA8A04', '#059669', '#9333EA', '#EA580C',
+]
+
+function pctForCompany(row, attr) {
+  const total = Object.values(row.by_attribute || {}).reduce((a, b) => a + b, 0)
+  if (!total) return 0
+  return ((row.by_attribute[attr] || 0) / total) * 100
+}
+
+// Even (quantile) buckets: for one value prop, sort every company's real %
+// score, split into 5 equal-ish groups, score = 1 (bottom group) to 5 (top
+// group). Raw % shares are usually small (rarely above 30-40% for any one
+// attribute), so a fixed 0-100 scale would crowd almost everyone into the
+// low end - ranking against the actual observed spread instead means the
+// full 1-5 scale is always meaningfully used.
+function quantileScores(items) {
+  const sorted = [...items].sort((a, b) => a.value - b.value)
+  const n = sorted.length
+  const scores = {}
+  sorted.forEach((item, i) => {
+    scores[item.key] = Math.min(4, Math.floor((i * 5) / n)) + 1
+  })
+  return scores
 }
 
 const selectStyle = {
@@ -68,10 +80,11 @@ export default function ValueMap({ categories }) {
     <div style={{ background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '20px 22px', marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 4 }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3 }}>Value map: what each side actually leads with</div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3 }}>Value map: what each brand actually leads with</div>
           <div style={{ fontSize: 11, color: MUTED, maxWidth: 620 }}>
-            For each value proposition, the real share of a group's classified output (past year) that leans on it - how much a
-            brand communicates something stands in for how much it leads with that value.
+            Each line is one brand's real message mix (past year) across the same 7 value props. Score is a 1-5 rank against
+            every brand shown here, not a raw percentage - how much a brand communicates something stands in for how much it
+            leads with that value.
           </div>
         </div>
         <div>
@@ -90,69 +103,87 @@ export default function ValueMap({ categories }) {
       ) : !ours || !compared ? (
         <div style={{ padding: '30px 0', color: MUTED }}>Loading…</div>
       ) : (
-        <ValueMapPlot ours={ours.rows} compared={compared.rows} compareCategory={effectiveCompareCategory} />
+        <ValueMapPlots ours={ours.rows} compared={compared.rows} compareCategory={effectiveCompareCategory} />
       )}
     </div>
   )
 }
 
-function ValueMapPlot({ ours, compared, compareCategory }) {
-  const a = aggregate(ours)
-  const b = aggregate(compared)
-  if (!a.classifiedTotal && !b.classifiedTotal) {
+function ValueMapPlots({ ours, compared, compareCategory }) {
+  const oursActive = ours.filter((r) => r.total > 0)
+  const comparedActive = compared.filter((r) => r.total > 0)
+  if (!oursActive.length && !comparedActive.length) {
     return <div style={{ fontSize: 10.5, color: MUTED, fontStyle: 'italic', padding: '30px 0' }}>Not enough classified data for either group yet.</div>
   }
 
-  const pct = (agg, attr) => (agg.classifiedTotal ? (agg.totals[attr] || 0) / agg.classifiedTotal * 100 : 0)
-  const values = VALUE_PROPS.flatMap((attr) => [pct(a, attr), pct(b, attr)])
-  const maxVal = Math.max(...values, 5)
-
-  const plotW = W - LABEL_W - PLOT_R_PAD
-  const x = (v) => LABEL_W + (v / maxVal) * plotW
-  const y = (i) => PAD_TOP + i * ROW_H
-
-  const linePoints = (agg) => VALUE_PROPS.map((attr, i) => `${x(pct(agg, attr))},${y(i)}`).join(' ')
+  // Pooled across BOTH groups per row, so a "3" means the same thing on
+  // both charts - the two sides stay directly comparable.
+  const scoresByAttr = {}
+  for (const attr of VALUE_PROPS) {
+    const items = [...oursActive, ...comparedActive].map((r) => ({ key: r.company, value: pctForCompany(r, attr) }))
+    scoresByAttr[attr] = quantileScores(items)
+  }
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 16, marginBottom: 10, fontSize: 10, color: MUTED }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ width: 16, height: 2, background: DEEP_TEAL, display: 'inline-block' }} /> Mavis family
-        </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ width: 16, height: 2, background: SLATE_400, display: 'inline-block' }} /> {compareCategory}
-        </span>
-      </div>
+    <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+      <ValueMapChart title="Mavis family of brands" rows={oursActive} scoresByAttr={scoresByAttr} showLabels />
+      <ValueMapChart title={compareCategory} rows={comparedActive} scoresByAttr={scoresByAttr} />
+    </div>
+  )
+}
 
-      <svg viewBox={`0 0 ${W} ${HEIGHT}`} style={{ width: '100%', height: 'auto', display: 'block', maxWidth: W }}>
-        {VALUE_PROPS.map((attr, i) => (
-          <g key={attr}>
-            <line x1={LABEL_W} y1={y(i)} x2={W - PLOT_R_PAD + 14} y2={y(i)} stroke={SLATE_200} strokeWidth={1} />
-            <text x={LABEL_W - 12} y={y(i) + 4} fontSize="11" fill={INK_TEXT} textAnchor="end" fontWeight={600}>{attr}</text>
-          </g>
-        ))}
+function ValueMapChart({ title, rows, scoresByAttr, showLabels = false }) {
+  const x = (score) => LABEL_W + ((score - 1) / 4) * CHART_W
+  const y = (i) => PAD_TOP + i * ROW_H
 
-        <polyline points={linePoints(b)} fill="none" stroke={SLATE_400} strokeWidth={2} />
-        <polyline points={linePoints(a)} fill="none" stroke={DEEP_TEAL} strokeWidth={2.5} />
+  return (
+    <div style={{ flex: '1 1 380px', minWidth: 320 }}>
+      <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 8 }}>{title}</div>
+      {!rows.length ? (
+        <div style={{ fontSize: 10.5, color: MUTED, fontStyle: 'italic' }}>No data yet.</div>
+      ) : (
+        <>
+          <svg viewBox={`0 0 ${W} ${HEIGHT}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+            {VALUE_PROPS.map((attr, i) => (
+              <g key={attr}>
+                <line x1={LABEL_W} y1={y(i)} x2={W - RIGHT_MARGIN} y2={y(i)} stroke={SLATE_200} strokeWidth={1} />
+                {showLabels && (
+                  <text x={LABEL_W - 12} y={y(i) + 4} fontSize="10.5" fill={INK_TEXT} textAnchor="end" fontWeight={600}>{attr}</text>
+                )}
+              </g>
+            ))}
 
-        {VALUE_PROPS.map((attr, i) => (
-          <g key={`pts-${attr}`}>
-            <circle cx={x(pct(b, attr))} cy={y(i)} r={4.5} fill={SLATE_400} stroke="#FFFFFF" strokeWidth={1.5}>
-              <title>{`${compareCategory} — ${attr}: ${pct(b, attr).toFixed(1)}% of classified output`}</title>
-            </circle>
-            <circle cx={x(pct(a, attr))} cy={y(i)} r={4.5} fill={DEEP_TEAL} stroke="#FFFFFF" strokeWidth={1.5}>
-              <title>{`Mavis family — ${attr}: ${pct(a, attr).toFixed(1)}% of classified output`}</title>
-            </circle>
-          </g>
-        ))}
+            {rows.map((r, ri) => {
+              const color = BRAND_COLORS[ri % BRAND_COLORS.length]
+              const pts = VALUE_PROPS.map((attr, i) => `${x(scoresByAttr[attr][r.company])},${y(i)}`).join(' ')
+              return (
+                <g key={r.company}>
+                  <polyline points={pts} fill="none" stroke={color} strokeWidth={2} opacity={0.85} />
+                  {VALUE_PROPS.map((attr, i) => (
+                    <circle key={attr} cx={x(scoresByAttr[attr][r.company])} cy={y(i)} r={4} fill={color} stroke="#FFFFFF" strokeWidth={1.2}>
+                      <title>{`${r.company} — ${attr}: ${scoresByAttr[attr][r.company]}/5 (${pctForCompany(r, attr).toFixed(1)}% of classified output)`}</title>
+                    </circle>
+                  ))}
+                </g>
+              )
+            })}
 
-        <line x1={LABEL_W} y1={HEIGHT - PAD_BOTTOM + 14} x2={W - PLOT_R_PAD + 14} y2={HEIGHT - PAD_BOTTOM + 14} stroke={SLATE_200} strokeWidth={1} />
-        <text x={LABEL_W} y={HEIGHT - 8} fontSize="9.5" fill={MUTED}>0%</text>
-        <text x={W - PLOT_R_PAD + 14} y={HEIGHT - 8} fontSize="9.5" fill={MUTED} textAnchor="end">{maxVal.toFixed(0)}%</text>
-      </svg>
-      <div style={{ textAlign: 'center', marginTop: 2, fontSize: 10.5, fontWeight: 700, color: INK_TEXT, letterSpacing: '.03em' }}>
-        SHARE OF CLASSIFIED OUTPUT LEANING ON THIS VALUE PROP (PAST YEAR) →
-      </div>
+            {[1, 2, 3, 4, 5].map((s) => (
+              <text key={s} x={x(s)} y={HEIGHT - PAD_BOTTOM + 20} fontSize="10" fill={MUTED} textAnchor="middle">{s}</text>
+            ))}
+            <text x={LABEL_W} y={HEIGHT - 6} fontSize="9" fill={MUTED} letterSpacing=".05em">LOW</text>
+            <text x={W - RIGHT_MARGIN} y={HEIGHT - 6} fontSize="9" fill={MUTED} letterSpacing=".05em" textAnchor="end">HIGH</text>
+          </svg>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginTop: 10, fontSize: 9.5, color: MUTED }}>
+            {rows.map((r, ri) => (
+              <span key={r.company} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: BRAND_COLORS[ri % BRAND_COLORS.length], display: 'inline-block', flex: 'none' }} />
+                {r.company}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
