@@ -174,10 +174,20 @@ def _brand_category(name: str) -> str:
     return non_own[0] if non_own else (own_groups.iloc[0] if len(own_groups) else "Our Brands")
 
 
+# Brands whose real site has no proper favicon, so both Google's and
+# DuckDuckGo's favicon services fall back to some unrelated cached image
+# (confirmed for Tire Kingdom: tirekingdom.com serves its full HTML app
+# shell at /favicon.ico instead of an actual icon). Manually excluded
+# rather than shown wrong - the frontend's initial-letter fallback covers it.
+LOGO_OVERRIDES = {"Tire Kingdom": None}
+
+
 def _logo_url(name: str, meta) -> Optional[str]:
     """A small brand mark for chart markers - there's no logo asset pipeline
     in this app, so this derives one from the brand's own website favicon
     via Google's public favicon service (no API key, no scraping needed)."""
+    if name in LOGO_OVERRIDES:
+        return LOGO_OVERRIDES[name]
     url = meta.loc[meta["name"] == name, "website_url"]
     if url.empty or not url.iloc[0]:
         return None
@@ -474,8 +484,8 @@ def get_compare(a: str, b: str):
 def get_landscape_volume(category: str = "Our Brands", days: int = 90):
     if category not in _all_categories():
         raise HTTPException(404, f"Unknown category: {category}")
-    if days not in (30, 90, 180):
-        raise HTTPException(400, "days must be 30, 90, or 180")
+    if days not in (30, 90, 180, 365):
+        raise HTTPException(400, "days must be 30, 90, 180, or 365")
 
     def compute():
         data = _get_data()

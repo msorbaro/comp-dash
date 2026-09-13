@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { fmtNum, MUTED, SLATE_400, SLATE_200, DEEP_TEAL, SURFACE } from '../styles'
+import { fmtNum, MUTED, INK_TEXT, SLATE_600, SLATE_400, SLATE_200, DEEP_TEAL, SURFACE } from '../styles'
 
-const DAYS = 90
+// A full year, not a rolling 90 days - cadence and message mix are steadier
+// and more representative measured over a brand's last 12 months than a
+// shorter window that can be skewed by one campaign or a quiet quarter.
+const DAYS = 365
 const HEIGHT = 420
 // Keep markers off the hard edges of the plot so a brand at the extreme of
 // either axis doesn't get clipped or sit flush against the border.
@@ -21,6 +24,30 @@ function valueSharePct(row) {
   return (row.by_attribute['Price & Value'] / classified) * 100
 }
 
+// The full story behind one brand's dot: not just "62% value-led", but
+// what the OTHER 38% actually is (the single biggest non-price attribute),
+// plus the complete attribute breakdown underneath - shown as a native
+// tooltip (multi-line via \n, no library needed).
+function breakdownTooltip(row) {
+  const attrs = row.by_attribute || {}
+  const total = Object.values(attrs).reduce((a, b) => a + b, 0)
+  const freq = (row.total / (DAYS / 7)).toFixed(1)
+  const header = `${row.company} — ${freq} posts/week (past year)`
+  if (!total) return `${header}\nNot enough classified content yet.`
+
+  const sorted = Object.entries(attrs).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+  const valueCount = attrs['Price & Value'] || 0
+  const valuePct = Math.round((valueCount / total) * 100)
+  const brandPct = 100 - valuePct
+  const topOther = sorted.find(([k]) => k !== 'Price & Value')
+  const summary = topOther
+    ? `${valuePct}% value-led (Price & Value). The remaining ${brandPct}% is brand-led, mostly ${topOther[0]} (${Math.round((topOther[1] / total) * 100)}%).`
+    : `${valuePct}% value-led (Price & Value). ${brandPct}% brand-led.`
+
+  const lines = sorted.map(([k, v]) => `  ${Math.round((v / total) * 100)}%  ${k}`)
+  return `${header}\n${summary}\n\nFull breakdown (% of classified output):\n${lines.join('\n')}`
+}
+
 // Fixed-size logo marker with a colored ring identifying the group (ours vs
 // the comparison category), and a graceful initial-letter fallback if the
 // favicon fails to load or was never available.
@@ -30,7 +57,7 @@ function Marker({ row, group, xPct, yPct }) {
   const showFallback = !row.logo_url || broken
   return (
     <div
-      title={`${row.company}: ${(row.total / (DAYS / 7)).toFixed(1)} posts/week, ${Math.round(valueSharePct(row))}% value-led (of classified output)`}
+      title={breakdownTooltip(row)}
       style={{
         position: 'absolute', left: `${xPct}%`, top: `${yPct}%`, transform: 'translate(-50%, -50%)',
         width: 32, height: 32, borderRadius: '50%', background: SURFACE,
@@ -82,11 +109,14 @@ const selectStyle = {
 
 function QuadrantLabel({ corner, children }) {
   const pos = {
-    tl: { top: 10, left: 10 }, tr: { top: 10, right: 10 },
-    bl: { bottom: 10, left: 10 }, br: { bottom: 10, right: 10 },
+    tl: { top: 10, left: 10, textAlign: 'left' }, tr: { top: 10, right: 10, textAlign: 'right' },
+    bl: { bottom: 10, left: 10, textAlign: 'left' }, br: { bottom: 10, right: 10, textAlign: 'right' },
   }[corner]
   return (
-    <div style={{ position: 'absolute', ...pos, fontSize: 9, letterSpacing: '.08em', color: '#B9C2CC', fontWeight: 700, pointerEvents: 'none' }}>
+    <div style={{
+      position: 'absolute', ...pos, maxWidth: 190, fontSize: 10.5, lineHeight: 1.35, letterSpacing: '.01em',
+      color: SLATE_600, fontWeight: 600, pointerEvents: 'none', background: 'rgba(255,255,255,.75)', padding: '3px 6px', borderRadius: 5,
+    }}>
       {children}
     </div>
   )
@@ -121,8 +151,9 @@ export default function BrandMatrix({ categories }) {
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3 }}>Where each brand plays: frequency vs. value-led messaging</div>
           <div style={{ fontSize: 11, color: MUTED, maxWidth: 620 }}>
-            X is how often a brand posts (posts/week, last {DAYS} days). Y is whether its message mix leans Price &amp; Value
-            ("value-led", top) or everything else - Trust, Quality, Emotional, etc ("brand-led", bottom).
+            X is how often a brand posts (posts/week, over the past year). Y is whether its message mix leans Price &amp; Value
+            ("value-led", top) or everything else - Trust, Quality, Emotional, etc ("brand-led", bottom). Hover a logo for the
+            full attribute breakdown behind it.
           </div>
         </div>
         <div>
@@ -181,22 +212,40 @@ function BrandMatrixPlot({ ours, compared, compareCategory }) {
           <span style={{ width: 10, height: 10, borderRadius: '50%', border: `2px solid ${SLATE_400}`, display: 'inline-block' }} /> {compareCategory}
         </span>
       </div>
-      <div style={{ position: 'relative', width: '100%', height: HEIGHT, background: '#FBFCFD', border: `1px solid ${SLATE_200}`, borderRadius: 10 }}>
-        <div style={{ position: 'absolute', left: `${medianXPct}%`, top: 0, bottom: 0, width: 1, background: SLATE_200 }} />
-        <div style={{ position: 'absolute', left: 0, right: 0, top: '50%', height: 1, background: SLATE_200 }} />
 
-        <QuadrantLabel corner="tr">FREQUENT · VALUE-LED</QuadrantLabel>
-        <QuadrantLabel corner="tl">RARE · VALUE-LED</QuadrantLabel>
-        <QuadrantLabel corner="br">FREQUENT · BRAND-LED</QuadrantLabel>
-        <QuadrantLabel corner="bl">RARE · BRAND-LED</QuadrantLabel>
+      <div style={{ display: 'flex', gap: 10 }}>
+        {/* Y-axis title, running alongside the plot */}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'center', width: 20, padding: '4px 0' }}>
+          <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 10.5, fontWeight: 700, color: INK_TEXT, letterSpacing: '.03em' }}>
+            ↑ VALUE-LED (Price &amp; Value)
+          </div>
+          <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 10.5, fontWeight: 700, color: INK_TEXT, letterSpacing: '.03em' }}>
+            BRAND-LED (Trust, Quality, Emotional, etc) ↓
+          </div>
+        </div>
 
-        {points.map((p) => (
-          <Marker key={`${p.group}-${p.company}`} row={p.row} group={p.group} xPct={p.xPct} yPct={p.yPct} />
-        ))}
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9.5, color: MUTED, fontFamily: 'ui-monospace,Menlo,monospace' }}>
-        <span>0 posts/wk</span>
-        <span>{fmtNum(maxFreq)} posts/wk →</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ position: 'relative', width: '100%', height: HEIGHT, background: '#FBFCFD', border: `1px solid ${SLATE_200}`, borderRadius: 10 }}>
+            <div style={{ position: 'absolute', left: `${medianXPct}%`, top: 0, bottom: 0, width: 1, background: SLATE_200 }} />
+            <div style={{ position: 'absolute', left: 0, right: 0, top: '50%', height: 1, background: SLATE_200 }} />
+
+            <QuadrantLabel corner="tr">Posts often &amp; leads with price/value</QuadrantLabel>
+            <QuadrantLabel corner="tl">Posts rarely, but leads with price/value</QuadrantLabel>
+            <QuadrantLabel corner="br">Posts often &amp; leads with brand/trust</QuadrantLabel>
+            <QuadrantLabel corner="bl">Posts rarely &amp; leads with brand/trust</QuadrantLabel>
+
+            {points.map((p) => (
+              <Marker key={`${p.group}-${p.company}`} row={p.row} group={p.group} xPct={p.xPct} yPct={p.yPct} />
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9.5, color: MUTED, fontFamily: 'ui-monospace,Menlo,monospace' }}>
+            <span>0 posts/wk</span>
+            <span>{fmtNum(maxFreq)} posts/wk</span>
+          </div>
+          <div style={{ textAlign: 'center', marginTop: 4, fontSize: 10.5, fontWeight: 700, color: INK_TEXT, letterSpacing: '.03em' }}>
+            POSTING FREQUENCY (posts/week, past year) →
+          </div>
+        </div>
       </div>
     </div>
   )
