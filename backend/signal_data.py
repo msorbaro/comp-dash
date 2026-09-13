@@ -281,16 +281,18 @@ def stage_attribute_breakdown(brand_names: list, stage_name: str, data: dict, da
 
 
 def company_volume_breakdown(brand_names: list, data: dict, days: int = 90) -> list:
-    """Per-company posting/ad volume in the last `days` days, broken down two
-    ways: by funnel stage (See/Think/Do) and by real classified message
-    attribute - the numbers behind "how often does each company post, and
-    what is that output actually made of." `total` counts every real
-    post/ad in the window regardless of classification; the by_* counts are
-    only over items that do have a classification (same convention as the
-    mix/% fields elsewhere), so a by_* dict can undercount total slightly
-    for a brand with unclassified backlog.
+    """Per-company posting/ad volume in the last `days` days, broken down
+    three ways: by funnel stage (See/Think/Do), by real classified message
+    attribute, and by channel - the numbers behind "how often does each
+    company post, what is that output made of, and where does it run."
+    `total` counts every real post/ad in the window regardless of
+    classification; by_stage/by_attribute counts are only over items that
+    do have a classification (same convention as the mix/% fields
+    elsewhere), so they can undercount total slightly for a brand with
+    unclassified backlog. by_channel needs no classification, so it always
+    sums to `total` exactly.
     Returns one dict per brand_names entry, in the same order given:
-    {"company": name, "total": n, "by_stage": {...}, "by_attribute": {...}}."""
+    {"company": name, "total": n, "by_stage": {...}, "by_attribute": {...}, "by_channel": {...}}."""
     from categorize.attribute_taxonomy import MESSAGE_ATTRIBUTES
 
     out = []
@@ -298,6 +300,7 @@ def company_volume_breakdown(brand_names: list, data: dict, days: int = 90) -> l
         total = 0
         by_stage = {s["name"]: 0 for s in STAGES}
         by_attribute = {a: 0 for a in MESSAGE_ATTRIBUTES}
+        by_channel = {ch["id"]: 0 for ch in CHANNELS}
         for ch in CHANNELS:
             sub, date_col, funnel_col, _category_col = _channel_frame(name, ch["id"], data)
             if sub.empty:
@@ -310,6 +313,7 @@ def company_volume_breakdown(brand_names: list, data: dict, days: int = 90) -> l
                     now = _tz_naive_now(sub[date_col])
                     sub = sub[sub[date_col] >= (now - dt.timedelta(days=days))]
             total += len(sub)
+            by_channel[ch["id"]] += len(sub)
             if funnel_col and funnel_col in sub.columns:
                 for stage, cnt in sub[funnel_col].value_counts().items():
                     if stage in by_stage:
@@ -318,27 +322,8 @@ def company_volume_breakdown(brand_names: list, data: dict, days: int = 90) -> l
                 for attr, cnt in sub["message_attribute"].value_counts().items():
                     if attr in by_attribute:
                         by_attribute[attr] += int(cnt)
-        out.append({"company": name, "total": total, "by_stage": by_stage, "by_attribute": by_attribute})
+        out.append({"company": name, "total": total, "by_stage": by_stage, "by_attribute": by_attribute, "by_channel": by_channel})
     return out
-
-
-def channel_stage_sample_texts(brand_names: list, channel_id: str, stage_name: str, data: dict, n_per_brand: int = 6) -> list:
-    """Real copy from one CHANNEL, one See/Think/Do stage, across a given
-    list of brands - the building block for comparing "what we say on this
-    channel at this stage" vs "what everyone else says", brand-list-scoped
-    so it can be called once for Our Brands and once for everyone else."""
-    texts = []
-    for name in brand_names:
-        sub, _date_col, funnel_col, _category_col = _channel_frame(name, channel_id, data)
-        if sub.empty or not funnel_col:
-            continue
-        stage_sub = sub[sub[funnel_col] == stage_name]
-        if stage_sub.empty:
-            continue
-        pool = _text_series_for(stage_sub, channel_id).dropna()
-        pool = pool[pool.str.strip() != ""]
-        texts.extend(t[:200] for t in pool.head(n_per_brand).tolist())
-    return texts
 
 
 def category_channel_sample_texts(brand_names: list, channel_id: str, data: dict, n_per_brand: int = 6) -> list:

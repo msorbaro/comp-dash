@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ContextBar from '../components/ContextBar'
-import { SectionNumber, StageBar, MixCaption, Legend } from '../components/Widgets'
+import { SectionNumber, StageBar, MixCaption, ChannelBar, topChannelsLabel, Legend } from '../components/Widgets'
 import PostingCadence from '../components/PostingCadence'
-import { competesBadgeStyle, fmtNum, verdict, mixLabel, attributeRows, STAGES, MUTED, INK_TEXT, SLATE_200, DEEP_TEAL, TEAL, AMBER, TEAL_700, TRACK, INK } from '../styles'
+import { competesBadgeStyle, fmtNum, verdict, mixLabel, attributeRows, STAGES, MUTED, INK_TEXT, SLATE_200, SLATE_600, DEEP_TEAL, TEAL, AMBER, TEAL_700, TRACK, INK } from '../styles'
 
 export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
+  const [gridMode, setGridMode] = useState('stage')
 
   const load = () => {
     setError(null)
@@ -82,7 +83,7 @@ export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
         </div>
       )}
 
-      <PostingCadence />
+      <PostingCadence categories={data.categories.map((c) => c.name)} />
 
       {/* What the industry is actually saying */}
       <div style={{ background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '20px 22px', marginBottom: 14 }}>
@@ -132,14 +133,22 @@ export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
         </div>
       </div>
 
-      {/* Per-channel content comparison at the See stage */}
-      <div style={{ background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '20px 22px', marginBottom: 14 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3 }}>What we say vs. what the market says, by channel — See stage</div>
-        <div style={{ fontSize: 11, color: MUTED, marginBottom: 16 }}>
-          For each channel: themes both sides hit, themes only we hit, and themes only the rest of the market hits at the
-          awareness (See) stage. This is where the content gap actually shows up, not just a volume number.
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ fontSize: 11, color: MUTED }}>Every category and the brands in it - by stage mix or by which channels they actually run.</div>
+        <div style={{ display: 'flex', gap: 5 }}>
+          <button
+            onClick={() => setGridMode('stage')}
+            style={pillStyle(gridMode === 'stage')}
+          >
+            Stage mix
+          </button>
+          <button
+            onClick={() => setGridMode('channel')}
+            style={pillStyle(gridMode === 'channel')}
+          >
+            Channel mix
+          </button>
         </div>
-        <ChannelContentComparison rows={data.channel_content} />
       </div>
 
       <div style={{ background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '4px 18px' }}>
@@ -161,10 +170,19 @@ export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
                 </div>
               </div>
               <div>
-                <StageBar mix={cat.mix} />
-                <MixCaption mix={cat.mix} />
-                <div style={{ fontSize: 11.5, color: INK_TEXT, marginTop: 7, fontWeight: 500 }}>{verdict(cat.mix)}</div>
-                <div style={{ fontSize: 10.5, color: MUTED, marginTop: 5 }}>See-share spread across brands: {cat.spread[0]}pts</div>
+                {gridMode === 'stage' ? (
+                  <>
+                    <StageBar mix={cat.mix} />
+                    <MixCaption mix={cat.mix} />
+                    <div style={{ fontSize: 11.5, color: INK_TEXT, marginTop: 7, fontWeight: 500 }}>{verdict(cat.mix)}</div>
+                    <div style={{ fontSize: 10.5, color: MUTED, marginTop: 5 }}>See-share spread across brands: {cat.spread[0]}pts</div>
+                  </>
+                ) : (
+                  <>
+                    <ChannelBar totals={cat.channel_totals} />
+                    <div style={{ fontSize: 10.5, color: MUTED, marginTop: 7, fontFamily: 'ui-monospace,Menlo,monospace' }}>{topChannelsLabel(cat.channel_totals, 3)}</div>
+                  </>
+                )}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8 }}>
                 {cat.profiles.map((p) => (
@@ -179,10 +197,21 @@ export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
                     onMouseLeave={(e) => { e.currentTarget.style.borderColor = SLATE_200; e.currentTarget.style.background = '#FBFCFD' }}
                   >
                     <div style={{ fontSize: 11.5, fontWeight: 500, lineHeight: 1.25, height: 29, overflow: 'hidden', color: INK_TEXT }}>{p.company}</div>
-                    <StageBar mix={p.mix} height={6} radius={3} />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: MUTED, fontFamily: 'ui-monospace,Menlo,monospace', marginTop: 6 }}>
-                      <span>{fmtNum(p.monthly_output)}/mo</span><span>{mixLabel(p.mix)}</span>
-                    </div>
+                    {gridMode === 'stage' ? (
+                      <>
+                        <StageBar mix={p.mix} height={6} radius={3} />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: MUTED, fontFamily: 'ui-monospace,Menlo,monospace', marginTop: 6 }}>
+                          <span>{fmtNum(p.monthly_output)}/mo</span><span>{mixLabel(p.mix)}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <ChannelBar totals={p.channel_mix} height={6} radius={3} />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9.5, color: MUTED, fontFamily: 'ui-monospace,Menlo,monospace', marginTop: 6 }}>
+                          <span>{fmtNum(p.monthly_output)}/mo</span><span>{topChannelsLabel(p.channel_mix, 1)}</span>
+                        </div>
+                      </>
+                    )}
                   </button>
                 ))}
               </div>
@@ -195,43 +224,10 @@ export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
   )
 }
 
-// Per-channel: what content themes both sides hit, and where each side
-// diverges - concrete "here's what's different", not an abstract percentage.
-function ChannelContentComparison({ rows }) {
-  if (!rows?.length) return <div style={{ fontSize: 11, color: MUTED, fontStyle: 'italic' }}>Not enough See-stage content captured yet.</div>
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {rows.map((r) => (
-        <div key={r.channel.id} style={{ border: `1px solid ${SLATE_200}`, borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 9, flexWrap: 'wrap', gap: 6 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600 }}>{r.channel.name}</div>
-            <div style={{ fontSize: 9.5, color: MUTED, fontFamily: 'ui-monospace,Menlo,monospace' }}>
-              {r.our_example_count} of ours vs {r.other_example_count} from the market, sampled
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
-            <div>
-              <div style={{ fontSize: 9.5, letterSpacing: '.1em', color: DEEP_TEAL, fontWeight: 600, marginBottom: 6 }}>ONLY WE SAY</div>
-              {r.our_only_themes?.length ? r.our_only_themes.map((t, i) => (
-                <div key={i} style={{ fontSize: 10.5, color: INK_TEXT, padding: '3px 0' }}>{t}</div>
-              )) : <div style={{ fontSize: 10, color: MUTED, fontStyle: 'italic' }}>—</div>}
-            </div>
-            <div>
-              <div style={{ fontSize: 9.5, letterSpacing: '.1em', color: MUTED, fontWeight: 600, marginBottom: 6 }}>BOTH SIDES SAY</div>
-              {r.shared_themes?.length ? r.shared_themes.map((t, i) => (
-                <div key={i} style={{ fontSize: 10.5, color: INK_TEXT, padding: '3px 0' }}>{t}</div>
-              )) : <div style={{ fontSize: 10, color: MUTED, fontStyle: 'italic' }}>—</div>}
-            </div>
-            <div>
-              <div style={{ fontSize: 9.5, letterSpacing: '.1em', color: AMBER, fontWeight: 600, marginBottom: 6 }}>ONLY THE MARKET SAYS</div>
-              {r.other_only_themes?.length ? r.other_only_themes.map((t, i) => (
-                <div key={i} style={{ fontSize: 10.5, color: INK_TEXT, padding: '3px 0' }}>{t}</div>
-              )) : <div style={{ fontSize: 10, color: MUTED, fontStyle: 'italic' }}>—</div>}
-            </div>
-          </div>
-          {r.note && <div style={{ fontSize: 10.5, color: MUTED, lineHeight: 1.4, marginTop: 10, paddingTop: 9, borderTop: `1px solid ${SLATE_200}`, fontStyle: 'italic' }}>{r.note}</div>}
-        </div>
-      ))}
-    </div>
-  )
+function pillStyle(active) {
+  return {
+    fontSize: 10.5, fontWeight: active ? 600 : 500, padding: '5px 11px', borderRadius: 16,
+    background: active ? DEEP_TEAL : '#FFFFFF', color: active ? '#FFFFFF' : SLATE_600,
+    border: `1px solid ${active ? DEEP_TEAL : SLATE_200}`, cursor: 'pointer', fontFamily: 'Poppins, sans-serif',
+  }
 }

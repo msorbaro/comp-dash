@@ -215,14 +215,24 @@ def _compute_landscape():
         if not cp["profiles"]:
             continue
         stage_output_by_category[cat_name] = sd.category_stage_output(brand_names, data)
+        # Real per-channel volume alongside the stage mix, so the bottom
+        # grid can toggle between "how this brand splits See/Think/Do" and
+        # "which channels this brand actually runs" using the same layout.
+        vol_by_name = {r["company"]: r for r in sd.company_volume_breakdown(brand_names, data, days=90)}
+        channel_totals = {ch["id"]: 0 for ch in sd.CHANNELS}
+        for r in vol_by_name.values():
+            for ch_id, cnt in r["by_channel"].items():
+                channel_totals[ch_id] += cnt
         out.append({
             "name": cat_name, "note": CATEGORY_NOTE.get(cat_name, ""),
             "competes": CATEGORY_COMPETES.get(cat_name, "read-across"),
             "mix": cp["mix"], "spread": cp["spread"],
             "stage_output": stage_output_by_category[cat_name],
+            "channel_totals": channel_totals,
             "profiles": [
                 {"company": p["company"], "mix": p["mix"], "monthly_output": p["monthly_output"],
-                 "total_all_time": p["total_all_time"]}
+                 "total_all_time": p["total_all_time"],
+                 "channel_mix": vol_by_name.get(p["company"], {}).get("by_channel", {})}
                 for p in sorted(cp["profiles"], key=lambda p: -p["total_all_time"])
             ],
         })
@@ -243,22 +253,6 @@ def _compute_landscape():
         other_breakdown = sd.stage_attribute_breakdown(other_brand_names, s["name"], data)
         stage_themes[s["name"]] = {"our": our_breakdown, "other": other_breakdown}
 
-    # Per-channel content comparison at the See stage specifically - what WE
-    # say vs what the REST OF THE MARKET says on that one channel, e.g. "on
-    # Instagram Organic we lean on X while everyone else leans on Y" -
-    # concrete content gaps instead of an abstract %Do spread.
-    channel_content = []
-    for ch in sd.CHANNELS:
-        our_ch_texts = sd.channel_stage_sample_texts(our_brand_names, ch["id"], "See", data, n_per_brand=8)
-        other_ch_texts = sd.channel_stage_sample_texts(other_brand_names, ch["id"], "See", data, n_per_brand=3)
-        if not our_ch_texts and not other_ch_texts:
-            continue
-        comparison = synthesize.channel_content_comparison(ch["name"], "See", our_ch_texts, other_ch_texts)
-        channel_content.append({
-            "channel": ch, "our_example_count": len(our_ch_texts), "other_example_count": len(other_ch_texts),
-            **comparison,
-        })
-
     # The headline comparison: Our Brands' See-stage output (raw count, not
     # %) against the highest-output competitor group, and Our Brands' Do%
     # against the average of every other group - the numbers behind "we
@@ -278,7 +272,7 @@ def _compute_landscape():
         "other_categories_avg_do_pct": other_do_avg,
     }
 
-    return _clean({"categories": out, "channel_content": channel_content, "stage_themes": stage_themes, "insights": insights})
+    return _clean({"categories": out, "stage_themes": stage_themes, "insights": insights})
 
 
 def _attach_synthesis(name: str, r: dict, data: dict) -> dict:

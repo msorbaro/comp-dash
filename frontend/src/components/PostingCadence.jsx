@@ -1,43 +1,32 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { fmtNum, STAGES, ATTRIBUTE_COLORS, ATTRIBUTE_ORDER, MUTED, INK_TEXT, SLATE_600, SLATE_200, DEEP_TEAL, TRACK } from '../styles'
+import { fmtNum, STAGES, ATTRIBUTE_COLORS, ATTRIBUTE_ORDER, CHANNEL_ORDER, CHANNEL_COLORS, CHANNEL_NAME, MUTED, INK_TEXT, SLATE_600, SLATE_200, DEEP_TEAL, TRACK } from '../styles'
 
 const BAR_HEIGHT = 170
 const DAY_OPTIONS = [30, 90, 180]
+const MODES = [
+  { key: 'stage', label: 'By stage' },
+  { key: 'attribute', label: 'By attribute' },
+  { key: 'channel', label: 'By channel' },
+]
 
-function median(nums) {
-  if (!nums.length) return 0
-  const sorted = [...nums].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+function orderFor(mode) {
+  if (mode === 'stage') return STAGES.map((s) => s.name)
+  if (mode === 'channel') return CHANNEL_ORDER
+  return ATTRIBUTE_ORDER
 }
-
-// Greedy label declutter: several companies commonly land at the same
-// posting volume / See-share (e.g. several "Our Brands" sit right at 0%
-// See), so placing every label directly beside its dot at a fixed offset
-// produces unreadable overlapping text. Tries a handful of vertical offsets
-// per label, in x order, and keeps the first one that doesn't overlap an
-// already-placed label's estimated bounding box.
-function declutterLabels(points, xFn, yFn) {
-  const CHAR_W = 5.4, LABEL_H = 11
-  const OFFSETS = [3, 15, -9, 27, -21, 39, -33, 51, -45, 63]
-  const placed = []
-  const ordered = [...points].sort((a, b) => xFn(a) - xFn(b))
-  const withLabels = ordered.map((p) => {
-    const dotX = xFn(p), dotY = yFn(p)
-    const baseX = dotX + 8
-    const width = p.company.length * CHAR_W
-    let chosen = { x: baseX, y: dotY + OFFSETS[0] }
-    for (const dy of OFFSETS) {
-      const candY = dotY + dy
-      const rect = { x1: baseX, x2: baseX + width, y1: candY - LABEL_H, y2: candY + 2 }
-      const collides = placed.some((r) => rect.x1 < r.x2 && rect.x2 > r.x1 && rect.y1 < r.y2 && rect.y2 > r.y1)
-      if (!collides) { chosen = { x: baseX, y: candY }; break }
-    }
-    placed.push({ x1: chosen.x, x2: chosen.x + width, y1: chosen.y - LABEL_H, y2: chosen.y + 2 })
-    return { ...p, labelX: chosen.x, labelY: chosen.y, dotX, dotY }
-  })
-  return withLabels
+function colorFor(mode, key) {
+  if (mode === 'stage') return STAGES.find((s) => s.name === key)?.color
+  if (mode === 'channel') return CHANNEL_COLORS[key]
+  return ATTRIBUTE_COLORS[key]
+}
+function labelFor(mode, key) {
+  return mode === 'channel' ? CHANNEL_NAME[key] : key
+}
+function byKey(mode, r) {
+  if (mode === 'stage') return r.by_stage
+  if (mode === 'channel') return r.by_channel
+  return r.by_attribute
 }
 
 function Pill({ active, onClick, children }) {
@@ -55,31 +44,32 @@ function Pill({ active, onClick, children }) {
   )
 }
 
-// One bar per company, stacked and colored by either funnel stage or real
-// classified message attribute - "count" stacks to each company's actual
-// volume (so cadence differences are visible in bar height); "pct" stacks
-// every bar to a shared 100% (so composition is comparable regardless of
-// how often a company posts at all).
+// One bar per company, stacked and colored by stage, real classified message
+// attribute, or channel - "count" stacks to each company's actual volume (so
+// cadence differences are visible in bar height); "pct" stacks every bar to
+// a shared 100% (so composition is comparable regardless of how often a
+// company posts at all). Full page width, one row - bars get their own
+// natural width instead of being squeezed into a half-width column, which is
+// what caused the previous side-by-side layout to run off screen for
+// categories with more companies.
 function VolumeByCompanyChart({ rows, mode, view }) {
-  const order = mode === 'stage' ? STAGES.map((s) => s.name) : ATTRIBUTE_ORDER
-  const colorFor = (key) => (mode === 'stage' ? STAGES.find((s) => s.name === key)?.color : ATTRIBUTE_COLORS[key])
-  const byKey = (r) => (mode === 'stage' ? r.by_stage : r.by_attribute)
+  const order = orderFor(mode)
   const maxTotal = Math.max(...rows.map((r) => r.total), 1)
-  const presentKeys = order.filter((k) => rows.some((r) => (byKey(r)[k] || 0) > 0))
+  const presentKeys = order.filter((k) => rows.some((r) => (byKey(mode, r)[k] || 0) > 0))
 
   return (
     <div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 14, fontSize: 10, color: MUTED }}>
         {presentKeys.map((k) => (
           <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: colorFor(k), display: 'inline-block', flex: 'none' }} />
-            {k}
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: colorFor(mode, k), display: 'inline-block', flex: 'none' }} />
+            {labelFor(mode, k)}
           </span>
         ))}
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, overflowX: 'auto', paddingBottom: 2 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, flexWrap: 'wrap' }}>
         {rows.map((r) => {
-          const keyed = byKey(r)
+          const keyed = byKey(mode, r)
           const classifiedTotal = order.reduce((s, k) => s + (keyed[k] || 0), 0)
           const segments = order.map((k) => ({ key: k, count: keyed[k] || 0 })).filter((s) => s.count > 0)
           return (
@@ -93,8 +83,8 @@ function VolumeByCompanyChart({ rows, mode, view }) {
                   return (
                     <div
                       key={s.key}
-                      title={`${r.company} — ${s.key}: ${s.count} (${pct}% of classified output)`}
-                      style={{ height: `${heightPx}px`, background: colorFor(s.key), borderTop: '2px solid #FFFFFF' }}
+                      title={`${r.company} — ${labelFor(mode, s.key)}: ${s.count} (${pct}% of classified output)`}
+                      style={{ height: `${heightPx}px`, background: colorFor(mode, s.key), borderTop: '2px solid #FFFFFF' }}
                     />
                   )
                 })}
@@ -109,84 +99,45 @@ function VolumeByCompanyChart({ rows, mode, view }) {
   )
 }
 
-// A different cut of the same data: cadence (how often) against See-share
-// (what for) in one view, so "posts a lot but leans Do" and "posts rarely
-// but has a decent See mix" are both visible as distinct quadrants rather
-// than two separate numbers you have to hold in your head at once.
-function CadenceScatter({ rows, accent }) {
-  const W = 640, H = 240, PAD_L = 34, PAD_R = 16, PAD_T = 14, PAD_B = 26
-  const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B
-
-  const points = rows.map((r) => {
-    const classified = STAGES.reduce((s, st) => s + (r.by_stage[st.name] || 0), 0)
-    const seePct = classified ? Math.round(((r.by_stage.See || 0) / classified) * 100) : 0
-    return { company: r.company, total: r.total, seePct }
-  })
-  const maxX = Math.max(...points.map((p) => p.total), 1)
-  const x = (v) => PAD_L + (v / maxX) * plotW
-  const y = (v) => PAD_T + plotH - (v / 100) * plotH
-  const medianX = median(points.map((p) => p.total))
-  const medianY = median(points.map((p) => p.seePct))
-  const labeled = declutterLabels(points, (p) => x(p.total), (p) => y(p.seePct))
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block', maxWidth: 640 }}>
-      <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={H - PAD_B} stroke={SLATE_200} strokeWidth={1} />
-      <line x1={PAD_L} y1={H - PAD_B} x2={W - PAD_R} y2={H - PAD_B} stroke={SLATE_200} strokeWidth={1} />
-      <line x1={x(medianX)} y1={PAD_T} x2={x(medianX)} y2={H - PAD_B} stroke={SLATE_200} strokeWidth={1} strokeDasharray="3,3" />
-      <line x1={PAD_L} y1={y(medianY)} x2={W - PAD_R} y2={y(medianY)} stroke={SLATE_200} strokeWidth={1} strokeDasharray="3,3" />
-      <text x={PAD_L} y={H - 8} fontSize="9" fill={MUTED}>0 posts</text>
-      <text x={W - PAD_R} y={H - 8} fontSize="9" fill={MUTED} textAnchor="end">{fmtNum(maxX)} posts</text>
-      <text x={4} y={PAD_T + 8} fontSize="9" fill={MUTED}>100% See</text>
-      <text x={4} y={H - PAD_B} fontSize="9" fill={MUTED}>0% See</text>
-      {labeled.map((p) => (
-        <g key={p.company}>
-          {Math.abs(p.labelY - p.dotY) > 4 && (
-            <line x1={p.dotX + 5} y1={p.dotY} x2={p.labelX - 2} y2={p.labelY - 3} stroke={SLATE_200} strokeWidth={1} />
-          )}
-          <circle cx={p.dotX} cy={p.dotY} r={5} fill={accent} fillOpacity={0.88} stroke="#FFFFFF" strokeWidth={1.5}>
-            <title>{`${p.company}: ${p.total} posts in the period, ${p.seePct}% of classified output is See-stage`}</title>
-          </circle>
-          <text x={p.labelX} y={p.labelY} fontSize="9.5" fill={INK_TEXT}>{p.company}</text>
-        </g>
-      ))}
-    </svg>
-  )
-}
-
-function GroupPanel({ title, rows, mode, view, accent }) {
+function GroupPanel({ title, rows, mode, view }) {
   if (!rows?.length) return <div style={{ fontSize: 10.5, color: MUTED, fontStyle: 'italic' }}>No data for this group yet.</div>
   return (
-    <div style={{ minWidth: 0 }}>
+    <div>
       <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 10 }}>{title}</div>
       <VolumeByCompanyChart rows={rows} mode={mode} view={view} />
-      <div style={{ fontSize: 9.5, letterSpacing: '.1em', color: MUTED, fontWeight: 600, margin: '18px 0 8px' }}>
-        CADENCE VS. SEE-SHARE
-      </div>
-      <CadenceScatter rows={rows} accent={accent} />
     </div>
   )
 }
 
-// Self-contained: fetches its own two datasets (Our Brands + Automotive
-// Full Service, the two groups asked for) and owns the toggle state, so
+const selectStyle = {
+  fontSize: 11, fontWeight: 600, padding: '5px 10px', borderRadius: 7, border: `1px solid ${SLATE_200}`,
+  color: DEEP_TEAL, background: '#FFFFFF', fontFamily: 'Poppins, sans-serif', cursor: 'pointer',
+}
+
+// Self-contained: fetches its own two datasets - Our Brands (fixed) and a
+// selectable comparison category (default: Automotive Full Service, the
+// closest direct-competitor set) - and owns the toggle state, so
 // Landscape.jsx just drops this section in.
-export default function PostingCadence() {
+export default function PostingCadence({ categories }) {
   const [days, setDays] = useState(90)
   const [mode, setMode] = useState('stage')
   const [view, setView] = useState('count')
+  const [compareCategory, setCompareCategory] = useState('Automotive Full Service')
   const [ours, setOurs] = useState(null)
-  const [theirs, setTheirs] = useState(null)
+  const [compared, setCompared] = useState(null)
   const [error, setError] = useState(null)
+
+  const compareOptions = categories.filter((c) => c !== 'Our Brands')
+  const effectiveCompareCategory = compareOptions.includes(compareCategory) ? compareCategory : (compareOptions[0] || '')
 
   const load = () => {
     setError(null)
     Promise.all([
       api.landscapeVolume('Our Brands', days),
-      api.landscapeVolume('Automotive Full Service', days),
-    ]).then(([a, b]) => { setOurs(a); setTheirs(b) }).catch((e) => setError(e.message))
+      effectiveCompareCategory ? api.landscapeVolume(effectiveCompareCategory, days) : Promise.resolve(null),
+    ]).then(([a, b]) => { setOurs(a); setCompared(b) }).catch((e) => setError(e.message))
   }
-  useEffect(load, [days])
+  useEffect(load, [days, effectiveCompareCategory])
 
   return (
     <div style={{ background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '20px 22px', marginBottom: 14 }}>
@@ -194,8 +145,7 @@ export default function PostingCadence() {
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 3 }}>Posting cadence by company</div>
           <div style={{ fontSize: 11, color: MUTED, maxWidth: 560 }}>
-            How often each company posts, and what that output is made of - the Mavis family against Automotive Full
-            Service, the closest direct-competitor set.
+            How often each company posts, and what that output is made of - the Mavis family against any category you pick.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
@@ -205,8 +155,9 @@ export default function PostingCadence() {
             ))}
           </div>
           <div style={{ display: 'flex', gap: 5 }}>
-            <Pill active={mode === 'stage'} onClick={() => setMode('stage')}>By stage</Pill>
-            <Pill active={mode === 'attribute'} onClick={() => setMode('attribute')}>By attribute</Pill>
+            {MODES.map((m) => (
+              <Pill key={m.key} active={mode === m.key} onClick={() => setMode(m.key)}>{m.label}</Pill>
+            ))}
           </div>
           <div style={{ display: 'flex', gap: 5 }}>
             <Pill active={view === 'count'} onClick={() => setView('count')}>Volume</Pill>
@@ -220,12 +171,21 @@ export default function PostingCadence() {
           Couldn't load this section ({error}).{' '}
           <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
         </div>
-      ) : !ours || !theirs ? (
+      ) : !ours || !compared ? (
         <div style={{ padding: '30px 0', color: MUTED }}>Loading…</div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 28, marginTop: 18 }}>
-          <GroupPanel title="Mavis family of brands" rows={ours.rows} mode={mode} view={view} accent={DEEP_TEAL} />
-          <GroupPanel title="Automotive Full Service" rows={theirs.rows} mode={mode} view={view} accent={SLATE_600} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginTop: 18 }}>
+          <GroupPanel title="Mavis family of brands" rows={ours.rows} mode={mode} view={view} />
+          <div style={{ height: 1, background: SLATE_200 }} />
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 600 }}>Compare against</span>
+              <select value={effectiveCompareCategory} onChange={(e) => setCompareCategory(e.target.value)} style={selectStyle}>
+                {compareOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <VolumeByCompanyChart rows={compared.rows} mode={mode} view={view} />
+          </div>
         </div>
       )}
     </div>

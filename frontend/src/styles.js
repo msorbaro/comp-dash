@@ -44,6 +44,33 @@ export const ATTRIBUTE_COLORS = {
 }
 export const ATTRIBUTE_ORDER = Object.keys(ATTRIBUTE_COLORS)
 
+// Mirrors backend/signal_data.py's CHANNELS list (id/name/paid) - kept as a
+// small duplicated constant here the same way STAGES already is, since the
+// channel-breakdown API responses are keyed by these raw ids, not names.
+export const CHANNELS = [
+  { id: 'search', name: 'Paid Search', paid: true },
+  { id: 'meta_ads', name: 'IG / FB Ads', paid: true },
+  { id: 'ig_organic', name: 'Instagram Organic', paid: false },
+  { id: 'tiktok', name: 'TikTok', paid: false },
+  { id: 'youtube', name: 'YouTube', paid: false },
+  { id: 'x', name: 'X / Twitter', paid: false },
+  { id: 'homepage', name: 'Homepage', paid: false },
+]
+export const CHANNEL_ORDER = CHANNELS.map((c) => c.id)
+export const CHANNEL_NAME = Object.fromEntries(CHANNELS.map((c) => [c.id, c.name]))
+// Warm tones for paid channels, cool/distinct tones for owned ones - a
+// secondary encoding of the paid/owned split that's already used elsewhere
+// in the app, while still letting each channel read as its own color.
+export const CHANNEL_COLORS = {
+  search: '#D97706',
+  meta_ads: '#B45309',
+  ig_organic: '#22B8C4',
+  tiktok: '#7C3AED',
+  youtube: '#2563EB',
+  x: '#16A34A',
+  homepage: '#64748B',
+}
+
 export function fmtNum(n) {
   if (n === null || n === undefined) return '—'
   if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'

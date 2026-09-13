@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   STAGES, TRACK, MUTED, MONO, INK_TEXT, SLATE_600, DEEP_TEAL, TEAL, TEAL_WASH,
-  SLATE_200, SURFACE, MEDIA_HEIGHT, fmtNum, mixLabel,
+  SLATE_200, SURFACE, MEDIA_HEIGHT, fmtNum, mixLabel, CHANNEL_ORDER, CHANNEL_COLORS, CHANNEL_NAME,
 } from '../styles'
 
 export function StageBar({ mix, height = 11, radius = 6, trackColor = TRACK }) {
@@ -12,6 +12,47 @@ export function StageBar({ mix, height = 11, radius = 6, trackColor = TRACK }) {
       ))}
     </div>
   )
+}
+
+// Same shape as StageBar, generalized to the 7 channels - takes raw counts
+// (not pre-computed %) so segment widths are always exact regardless of how
+// many channels a brand actually uses.
+export function ChannelBar({ totals, height = 11, radius = 6, trackColor = TRACK }) {
+  const total = CHANNEL_ORDER.reduce((s, id) => s + (totals?.[id] || 0), 0)
+  return (
+    <div style={{ display: 'flex', height, borderRadius: radius, overflow: 'hidden', background: trackColor }} title={channelMixTitle(totals)}>
+      {total > 0 && CHANNEL_ORDER.map((id) => {
+        const count = totals?.[id] || 0
+        if (!count) return null
+        return <div key={id} style={{ width: `${(count / total) * 100}%`, background: CHANNEL_COLORS[id] }} />
+      })}
+    </div>
+  )
+}
+
+export function channelMixTitle(totals) {
+  const total = CHANNEL_ORDER.reduce((s, id) => s + (totals?.[id] || 0), 0)
+  if (!total) return 'No channel activity in this window'
+  return CHANNEL_ORDER
+    .filter((id) => totals[id] > 0)
+    .sort((a, b) => totals[b] - totals[a])
+    .map((id) => `${CHANNEL_NAME[id]}: ${totals[id]} (${Math.round((totals[id] / total) * 100)}%)`)
+    .join(' · ')
+}
+
+// The top channel(s) by share, as a compact caption analogous to MixCaption
+// ("42% Instagram Organic, 27% Paid Search") - only channels matter here,
+// not the See/Think/Do split, so it's a distinct helper rather than reusing
+// mixLabel.
+export function topChannelsLabel(totals, n = 2) {
+  const total = CHANNEL_ORDER.reduce((s, id) => s + (totals?.[id] || 0), 0)
+  if (!total) return 'no activity'
+  return CHANNEL_ORDER
+    .filter((id) => totals[id] > 0)
+    .sort((a, b) => totals[b] - totals[a])
+    .slice(0, n)
+    .map((id) => `${Math.round((totals[id] / total) * 100)}% ${CHANNEL_NAME[id]}`)
+    .join(', ')
 }
 
 export function MixCaption({ mix, suffix = 'see/think/do', color = MUTED }) {
