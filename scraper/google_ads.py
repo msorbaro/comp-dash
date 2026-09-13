@@ -122,6 +122,43 @@ def _is_own_ad(advertiser_name: str, competitor_name: str) -> bool:
     return b in a or a in b
 
 
+# Aliases for each "Our Brands" storefront, used only to catch a real,
+# confirmed failure mode: a shared advertiser account (like "Mavis Tire
+# Supply LLC", which runs ads for Mavis, Brakes Plus, and Express Oil) can
+# turn up a SIBLING brand's ad when searching a DIFFERENT sibling's domain
+# as a keyword. Being the right advertiser account doesn't mean every one
+# of its ads is for the storefront we're currently scraping - confirmed
+# directly: a live "NTB - National Tire & Battery" local ad was returned
+# while scraping Mavis's domain and, since the advertiser matched
+# KNOWN_OWN_ADVERTISERS, got attributed to Mavis's own ads.
+SIBLING_BRAND_ALIASES = {
+    "Mavis Discount Tire / Mavis Tires and Brakes": ("mavis",),
+    "Brakes Plus": ("brakes plus",),
+    "Express Oil": ("express oil",),
+    "National Tire and Battery": ("national tire", "ntb"),
+    "Tire Kingdom": ("tire kingdom",),
+    "Town Fair Tire": ("town fair tire",),
+    "Tuffy": ("tuffy",),
+    "Pep Boys": ("pep boys",),
+    "Midas": ("midas",),
+}
+
+
+def _headline_names_other_brand(headline: str, competitor_name: str) -> bool:
+    """True if this ad's own visible headline explicitly names a different
+    tracked "Our Brands" storefront than the one it's about to be
+    attributed to - the actual evidence that a shared-advertiser match is
+    for a sibling brand, not this one."""
+    if not headline:
+        return False
+    text = headline.lower()
+    return any(
+        any(alias in text for alias in aliases)
+        for name, aliases in SIBLING_BRAND_ALIASES.items()
+        if name != competitor_name
+    )
+
+
 def capture_google_ads(run_type: str = "weekly", max_results: int = 20,
                         only_own_brand: bool = False) -> dict:
     conn = get_conn()
@@ -192,6 +229,12 @@ def capture_google_ads(run_type: str = "weekly", max_results: int = 20,
                                 img_for_headline = row[0] if row else None
                         if img_for_headline:
                             update_fields["headline"] = extract_ad_headline(img_for_headline)
+                    # Same sibling-brand check as new inserts, in case a
+                    # headline backfilled just now (or already stored) is
+                    # what reveals a prior misattribution.
+                    effective_headline = update_fields.get("headline", existing_headline)
+                    if is_own and _headline_names_other_brand(effective_headline, name):
+                        update_fields["is_own_ad"] = False
                     set_clause = ", ".join(f"{k} = %({k})s" for k in update_fields)
                     with conn.cursor() as cur:
                         cur.execute(
@@ -215,6 +258,13 @@ def capture_google_ads(run_type: str = "weekly", max_results: int = 20,
                         stage, confidence = classify_funnel_stage(caption_context, "", "Google search ad")
                         message_attribute, attribute_confidence = classify_message_attribute(caption_context, "", "Google search ad")
                         headline = None
+
+                    # A shared-advertiser match at the account level doesn't
+                    # guarantee THIS ad is for the storefront we're
+                    # scraping - if its own visible headline names a
+                    # different tracked sibling brand, it isn't ours.
+                    if is_own and _headline_names_other_brand(headline, name):
+                        is_own = False
 
                     with conn.cursor() as cur:
                         cur.execute(
