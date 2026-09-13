@@ -359,12 +359,16 @@ def _compute_brand(name: str):
     })
 
 
-# The exact (n_creatives, type_filter) the Brand page requests on initial
-# load for every channel row - see frontend/src/screens/Brand.jsx's
-# SECTION_CREATIVE_FETCH_N. Only this default combo is worth proactively
-# warming; a content-type filter click is a user-initiated, one-off
-# request that can afford to compute live.
+# The exact (n_creatives, type_filter) combos the frontend requests with no
+# further user action - see frontend/src/screens/Brand.jsx's
+# SECTION_CREATIVE_FETCH_N (the per-channel preview on the Brand page) and
+# frontend/src/screens/Channel.jsx's CREATIVE_FETCH_N (the "See all"/full
+# channel detail page, always fetched uncapped and unfiltered on load).
+# Only these are worth proactively warming; a content-type filter click is
+# a user-initiated, one-off request that can afford to compute live.
 _DEFAULT_CHANNEL_N = 16
+_FULL_CHANNEL_N = 500
+_WARMED_CHANNEL_COMBOS = (_DEFAULT_CHANNEL_N, _FULL_CHANNEL_N)
 
 
 @app.get("/api/brand/channel")
@@ -372,7 +376,7 @@ def get_channel(name: str, channel_id: str, n_creatives: int = 8, type_filter: s
     if channel_id not in sd.CHANNEL_BY_ID:
         raise HTTPException(404, f"Unknown channel: {channel_id}")
     key = f"channel:{name}:{channel_id}:{n_creatives}:{type_filter}"
-    is_default_view = n_creatives == _DEFAULT_CHANNEL_N and not type_filter
+    is_default_view = n_creatives in _WARMED_CHANNEL_COMBOS and not type_filter
     if is_default_view and _brand_category(name) == "Our Brands":
         result = _cached_page(key, lambda: _compute_channel(name, channel_id, n_creatives, type_filter), block_on_miss=False)
         if result is None:
@@ -546,13 +550,15 @@ def _warm_cache_loop():
                 if _brand_category(name) == "Our Brands":
                     _refresh_page(f"brand:{name}", lambda name=name: _compute_brand(name))
                     # The Brand deep-dive page fires one of these per active
-                    # channel on load - previously totally uncached, so every
-                    # visit re-ran synthesis + creative loading for every
-                    # channel from scratch. This was the real "brand page is
-                    # so slow" cause.
+                    # channel on load, and the "See all" / channel-detail
+                    # page fires the _FULL_CHANNEL_N variant - both were
+                    # previously totally uncached, so every visit re-ran
+                    # synthesis + creative loading from scratch. This was
+                    # the real "brand/channel page is so slow" cause.
                     for ch in sd.CHANNELS:
-                        key = f"channel:{name}:{ch['id']}:{_DEFAULT_CHANNEL_N}:"
-                        _refresh_page(key, lambda name=name, ch_id=ch["id"]: _compute_channel(name, ch_id, _DEFAULT_CHANNEL_N, ""))
+                        for n in _WARMED_CHANNEL_COMBOS:
+                            key = f"channel:{name}:{ch['id']}:{n}:"
+                            _refresh_page(key, lambda name=name, ch_id=ch["id"], n=n: _compute_channel(name, ch_id, n, ""))
             # Default view for each Landscape volume-chart section (Posting
             # Cadence, Brand Matrix, Value Map) - each fetches "Our Brands"
             # plus a comparison category at a specific `days` window on

@@ -14,17 +14,26 @@ const CREATIVE_FETCH_N = 500
 
 export default function Channel({ brand, category, channelId, onBack, initialTypeFilter = null }) {
   const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
   const [stageFilter, setStageFilter] = useState(null)
   const [typeFilter, setTypeFilter] = useState(initialTypeFilter)
 
-  useEffect(() => {
+  const load = () => {
     setData(null)
+    setError(null)
     setStageFilter(null)
     setTypeFilter(initialTypeFilter)
-    api.channel(brand, channelId, CREATIVE_FETCH_N).then(setData)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brand, channelId])
+    api.channel(brand, channelId, CREATIVE_FETCH_N).then(setData).catch((e) => setError(e.message))
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(load, [brand, channelId])
 
+  if (error) return (
+    <div style={{ padding: 40, color: MUTED }}>
+      Couldn't load this channel ({error}).{' '}
+      <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
+    </div>
+  )
   if (!data) return <div style={{ padding: 40, color: MUTED }}>Loading…</div>
   const r = data.channel_data
   const ch = r.channel
