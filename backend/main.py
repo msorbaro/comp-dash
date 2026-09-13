@@ -305,8 +305,13 @@ def _attach_synthesis(name: str, r: dict, data: dict) -> dict:
     return r
 
 
-@app.get("/api/brand/{name}")
+@app.get("/api/brand")
 def get_brand(name: str):
+    # Not a path param: a brand name can contain "/" (e.g. "Mavis Discount
+    # Tire / Mavis Tires and Brakes"), and Cloudflare (fronting the Render
+    # deploy) normalizes a %2F in a path segment to a literal "/" before it
+    # reaches this app, splitting the path before routing ever sees it.
+    # A query param isn't subject to that normalization.
     if name not in _all_brand_names():
         raise HTTPException(404, f"Unknown brand: {name}")
     # Our own brands are kept warm by the background thread (like Landscape
@@ -335,7 +340,7 @@ def _compute_brand(name: str):
     })
 
 
-@app.get("/api/brand/{name}/channel/{channel_id}")
+@app.get("/api/brand/channel")
 def get_channel(name: str, channel_id: str, n_creatives: int = 8, type_filter: str = ""):
     data = _get_data()
     if channel_id not in sd.CHANNEL_BY_ID:
@@ -347,8 +352,11 @@ def get_channel(name: str, channel_id: str, n_creatives: int = 8, type_filter: s
     return _clean({"channel_data": r, "creatives": creatives})
 
 
-@app.get("/api/category/{name}")
+@app.get("/api/category")
 def get_category(name: str, focus_brand: str = ""):
+    # Not a path param: a category name can contain "/" (e.g. "Low Interest
+    # / Functional Categories"), which Cloudflare normalizes out of a path
+    # segment before this app ever sees the request - see get_brand above.
     if name not in _all_categories():
         raise HTTPException(404, f"Unknown category: {name}")
     # focus_brand only tweaks an is_focus flag on the already-computed
