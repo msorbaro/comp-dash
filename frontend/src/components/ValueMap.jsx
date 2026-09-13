@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { Shimmer } from './Widgets'
 import { MUTED, INK_TEXT, SLATE_200, DEEP_TEAL } from '../styles'
 
 // A full year, consistent with the brand-position matrix - steadier,
@@ -101,7 +102,10 @@ export default function ValueMap({ categories }) {
           <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
         </div>
       ) : !ours || !compared ? (
-        <div style={{ padding: '30px 0', color: MUTED }}>Loading…</div>
+        <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', marginTop: 18 }}>
+          <Shimmer width="100%" height={HEIGHT} radius={10} style={{ flex: '1 1 380px', minWidth: 320 }} />
+          <Shimmer width="100%" height={HEIGHT} radius={10} style={{ flex: '1 1 380px', minWidth: 320 }} />
+        </div>
       ) : (
         <ValueMapPlots ours={ours.rows} compared={compared.rows} compareCategory={effectiveCompareCategory} />
       )}

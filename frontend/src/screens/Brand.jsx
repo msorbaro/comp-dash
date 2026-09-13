@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ContextBar from '../components/ContextBar'
-import { SectionNumber, StageBar, MixCaption, ReadLine, CreativeCard, RowDivider, InfoLabel } from '../components/Widgets'
+import { SectionNumber, StageBar, MixCaption, ReadLine, CreativeCard, RowDivider, InfoLabel, PageSkeleton, Shimmer } from '../components/Widgets'
 import {
   competesBadgeStyle, paidChipStyle, fmtNum, mixLabel, verdict,
   dominantIdx, dominantWord, STAGES, MUTED, INK_TEXT, SLATE_600, SLATE_400, SLATE_200, TEAL_700, DEEP_TEAL, INK, TRACK,
@@ -61,7 +61,7 @@ export default function Brand({ meta, brand, onBrandChange, onOpenChannel, onOpe
       <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
     </div>
   )
-  if (!profile) return <div style={{ padding: 40, color: MUTED }}>Loading…</div>
+  if (!profile) return <PageSkeleton cards={2} gridItems={6} />
 
   // Channel summary order: currently-active channels first, dormant ones
   // (real history, but nothing in over a year) below those, and channels
@@ -304,14 +304,16 @@ export default function Brand({ meta, brand, onBrandChange, onOpenChannel, onOpe
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 11 }}>
                 {typeFilters[r.channel.id] ? (
                   filteredCreatives[r.channel.id] === null || filteredCreatives[r.channel.id] === undefined ? (
-                    <div style={{ fontSize: 11, color: MUTED, fontStyle: 'italic', gridColumn: '1 / -1' }}>Loading…</div>
+                    Array.from({ length: 4 }).map((_, i) => <Shimmer key={i} width="100%" height={150} radius={10} />)
                   ) : filteredCreatives[r.channel.id].length ? (
                     filteredCreatives[r.channel.id].slice(0, 8).map((cr, i) => <CreativeCard key={i} cr={cr} brand={brand} />)
                   ) : (
                     <div style={{ fontSize: 11, color: MUTED, fontStyle: 'italic', gridColumn: '1 / -1' }}>No captured creative matches this type.</div>
                   )
+                ) : channelCreatives[r.channel.id] === undefined ? (
+                  Array.from({ length: 4 }).map((_, i) => <Shimmer key={i} width="100%" height={150} radius={10} />)
                 ) : (
-                  (channelCreatives[r.channel.id] || []).slice(0, 8).map((cr, i) => <CreativeCard key={i} cr={cr} brand={brand} />)
+                  channelCreatives[r.channel.id].slice(0, 8).map((cr, i) => <CreativeCard key={i} cr={cr} brand={brand} />)
                 )}
               </div>
             </div>

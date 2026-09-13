@@ -4,6 +4,39 @@ import {
   SLATE_200, SURFACE, MEDIA_HEIGHT, fmtNum, mixLabel, CHANNEL_ORDER, CHANNEL_COLORS, CHANNEL_NAME,
 } from '../styles'
 
+// The shimmering rectangle primitive everything else below is built from -
+// plain CSS animation (see index.css's .bs-shimmer), no library.
+export function Shimmer({ width = '100%', height = 14, radius = 6, style = {} }) {
+  return <div className="bs-shimmer" style={{ width, height, borderRadius: radius, ...style }} />
+}
+
+// A generic full-page loading state: a title area, a couple of full-width
+// card-shaped blocks, and a grid of smaller ones - approximates the
+// card+grid shape most screens in this app share, so it reads as "this
+// page is loading" rather than a blank flash or a bare "Loading…" line.
+export function PageSkeleton({ cards = 2, gridItems = 8 }) {
+  return (
+    <div>
+      <Shimmer width={160} height={11} radius={4} style={{ marginBottom: 10 }} />
+      <Shimmer width={420} height={26} radius={6} style={{ marginBottom: 22 }} />
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cards},1fr)`, gap: 14, marginBottom: 20 }}>
+        {Array.from({ length: cards }).map((_, i) => (
+          <div key={i} style={{ background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '18px 20px' }}>
+            <Shimmer width="60%" height={10} radius={4} style={{ marginBottom: 12 }} />
+            <Shimmer width="100%" height={11} radius={4} style={{ marginBottom: 7 }} />
+            <Shimmer width="90%" height={11} radius={4} />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 13 }}>
+        {Array.from({ length: gridItems }).map((_, i) => (
+          <Shimmer key={i} width="100%" height={150} radius={10} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function StageBar({ mix, height = 11, radius = 6, trackColor = TRACK }) {
   return (
     <div style={{ display: 'flex', height, borderRadius: radius, overflow: 'hidden', background: trackColor }}>

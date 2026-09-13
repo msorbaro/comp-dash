@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ContextBar from '../components/ContextBar'
-import { SectionNumber, StageBar, MixCaption, ChannelBar, topChannelsLabel, Legend } from '../components/Widgets'
+import { SectionNumber, StageBar, MixCaption, ChannelBar, topChannelsLabel, Legend, PageSkeleton } from '../components/Widgets'
 import PostingCadence from '../components/PostingCadence'
 import BrandMatrix from '../components/BrandMatrix'
 import ValueMap from '../components/ValueMap'
@@ -24,7 +24,7 @@ export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
       <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
     </div>
   )
-  if (!data) return <div style={{ padding: 40, color: MUTED }}>Loading…</div>
+  if (!data) return <PageSkeleton cards={2} gridItems={8} />
 
   const totalBrands = meta.brands.length
   const ours = data.categories.find((c) => c.name === 'Our Brands')

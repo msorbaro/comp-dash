@@ -5,6 +5,7 @@ import Brand from './screens/Brand'
 import Channel from './screens/Channel'
 import Category from './screens/Category'
 import Compare from './screens/Compare'
+import { Shimmer } from './components/Widgets'
 import { api } from './api'
 import { CANVAS, MUTED } from './styles'
 
@@ -29,7 +30,14 @@ export default function App() {
     })
   }, [])
 
-  if (!meta) return <div style={{ padding: 100, textAlign: 'center', color: MUTED }}>Loading Brand Signal…</div>
+  if (!meta) return (
+    <div style={{ minHeight: '100vh', background: CANVAS, padding: '92px 32px 80px' }}>
+      <div style={{ maxWidth: 1440, margin: '0 auto' }}>
+        <Shimmer width={200} height={12} radius={4} style={{ marginBottom: 12 }} />
+        <Shimmer width={480} height={28} radius={6} />
+      </div>
+    </div>
+  )
 
   const goto = (nextScreen) => {
     if (nextScreen !== 'channel') setChannelId(null)

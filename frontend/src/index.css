@@ -4,3 +4,13 @@ a { color: #0F7A84; text-decoration: none; }
 a:hover { color: #22B8C4; }
 ::selection { background: #D5EFF1; }
 button { cursor: pointer; }
+
+@keyframes bs-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+.bs-shimmer {
+  background: linear-gradient(90deg, #EEF2F6 25%, #E2E8F0 37%, #EEF2F6 63%);
+  background-size: 400% 100%;
+  animation: bs-shimmer 1.4s ease infinite;
+}

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ContextBar from '../components/ContextBar'
-import { SectionNumber, StageBar, MixCaption, ReadLine, TableHead, RowDivider } from '../components/Widgets'
+import { SectionNumber, StageBar, MixCaption, ReadLine, TableHead, RowDivider, PageSkeleton } from '../components/Widgets'
 import { fmtNum, verdict, mixLabel, attributeRows, STAGES, MUTED, INK_TEXT, SLATE_600, SLATE_200, DEEP_TEAL, AMBER, TEAL_700, TRACK } from '../styles'
 
 export default function Category({ meta, category, focusBrand, allCategories, onCategoryChange, onOpenBrand }) {
@@ -47,7 +47,7 @@ export default function Category({ meta, category, focusBrand, allCategories, on
           Couldn't load this category ({error}).{' '}
           <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
         </div>
-      ) : !data ? <div style={{ padding: 40, color: MUTED }}>Loading…</div> : (
+      ) : !data ? <PageSkeleton cards={1} gridItems={6} /> : (
         <>
           <div style={{ background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '22px 24px', marginBottom: 14 }}>
             <div style={{ fontSize: 10, letterSpacing: '.15em', color: TEAL_700, fontWeight: 600 }}>CATEGORY ROLLUP</div>

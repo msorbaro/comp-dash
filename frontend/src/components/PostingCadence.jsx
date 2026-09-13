@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { Shimmer } from './Widgets'
 import { fmtNum, STAGES, ATTRIBUTE_COLORS, ATTRIBUTE_ORDER, CHANNEL_ORDER, CHANNEL_COLORS, CHANNEL_NAME, MUTED, INK_TEXT, SLATE_600, SLATE_200, DEEP_TEAL, TRACK } from '../styles'
 
 const BAR_HEIGHT = 170
@@ -185,7 +186,10 @@ export default function PostingCadence({ categories }) {
           <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
         </div>
       ) : !ours || !compared ? (
-        <div style={{ padding: '30px 0', color: MUTED }}>Loading…</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginTop: 18 }}>
+          <Shimmer width="100%" height={BAR_HEIGHT + 60} radius={10} />
+          <Shimmer width="100%" height={BAR_HEIGHT + 60} radius={10} />
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24, marginTop: 18 }}>
           <GroupPanel title="Mavis family of brands" rows={ours.rows} mode={mode} view={view} />

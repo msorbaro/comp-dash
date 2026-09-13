@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ContextBar from '../components/ContextBar'
-import { SectionNumber, StageBar, MixCaption, TableHead, RowDivider } from '../components/Widgets'
+import { SectionNumber, StageBar, MixCaption, TableHead, RowDivider, Shimmer } from '../components/Widgets'
 import { fmtNum, verdict, engagementUnitLabel, MUTED, INK, SLATE_200, SLATE_600, SLATE_400, TEAL, TEAL_700, TRACK } from '../styles'
 
 export default function Compare({ meta, brandA, brandB, onBrandAChange, onBrandBChange }) {
@@ -44,7 +44,22 @@ export default function Compare({ meta, brandA, brandB, onBrandAChange, onBrandB
           Couldn't load this comparison ({error}).{' '}
           <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
         </div>
-      ) : !data ? <div style={{ padding: 40, color: MUTED }}>Loading…</div> : (
+      ) : !data ? (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+            {[0, 1].map((i) => (
+              <div key={i} style={{ background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '18px 20px' }}>
+                <Shimmer width="50%" height={10} radius={4} style={{ marginBottom: 12 }} />
+                <Shimmer width="80%" height={22} radius={5} style={{ marginBottom: 14 }} />
+                <Shimmer width="100%" height={11} radius={5} />
+              </div>
+            ))}
+          </div>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Shimmer key={i} width="100%" height={30} radius={6} style={{ marginBottom: 10 }} />
+          ))}
+        </div>
+      ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
             {[data.a, data.b].map((p, i) => {

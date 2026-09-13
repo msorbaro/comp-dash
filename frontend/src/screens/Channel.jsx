@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { SectionNumber, StageBar, MixCaption, ReadLine, CreativeCard, InfoLabel } from '../components/Widgets'
+import { SectionNumber, StageBar, MixCaption, ReadLine, CreativeCard, InfoLabel, PageSkeleton } from '../components/Widgets'
 import {
   paidChipStyle, fmtNum, dominantIdx, dominantWord, engagementUnitLabel,
   STAGES, MUTED, INK_TEXT, SLATE_600, SLATE_200, TEAL_700, TRACK, DEEP_TEAL,
@@ -34,7 +34,7 @@ export default function Channel({ brand, category, channelId, onBack, initialTyp
       <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
     </div>
   )
-  if (!data) return <div style={{ padding: 40, color: MUTED }}>Loading…</div>
+  if (!data) return <PageSkeleton cards={3} gridItems={8} />
   const r = data.channel_data
   const ch = r.channel
   const topCt = r.content_types.length ? [...r.content_types].sort((a, b) => b.pct - a.pct)[0].name.toLowerCase() : 'unclassified content'

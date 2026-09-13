@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { Shimmer } from './Widgets'
 import { fmtNum, MUTED, INK_TEXT, SLATE_600, SLATE_400, SLATE_200, DEEP_TEAL, SURFACE } from '../styles'
 
 // A full year, not a rolling 90 days - cadence and message mix are steadier
@@ -170,7 +171,7 @@ export default function BrandMatrix({ categories }) {
           <span onClick={load} style={{ textDecoration: 'underline', cursor: 'pointer' }}>Try again</span>
         </div>
       ) : !ours || !compared ? (
-        <div style={{ padding: '30px 0', color: MUTED }}>Loading…</div>
+        <Shimmer width="100%" height={HEIGHT} radius={10} />
       ) : (
         <BrandMatrixPlot ours={ours.rows} compared={compared.rows} compareCategory={effectiveCompareCategory} />
       )}
