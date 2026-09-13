@@ -12,6 +12,34 @@ function median(nums) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
+// Greedy label declutter: several companies commonly land at the same
+// posting volume / See-share (e.g. several "Our Brands" sit right at 0%
+// See), so placing every label directly beside its dot at a fixed offset
+// produces unreadable overlapping text. Tries a handful of vertical offsets
+// per label, in x order, and keeps the first one that doesn't overlap an
+// already-placed label's estimated bounding box.
+function declutterLabels(points, xFn, yFn) {
+  const CHAR_W = 5.4, LABEL_H = 11
+  const OFFSETS = [3, 15, -9, 27, -21, 39, -33, 51, -45, 63]
+  const placed = []
+  const ordered = [...points].sort((a, b) => xFn(a) - xFn(b))
+  const withLabels = ordered.map((p) => {
+    const dotX = xFn(p), dotY = yFn(p)
+    const baseX = dotX + 8
+    const width = p.company.length * CHAR_W
+    let chosen = { x: baseX, y: dotY + OFFSETS[0] }
+    for (const dy of OFFSETS) {
+      const candY = dotY + dy
+      const rect = { x1: baseX, x2: baseX + width, y1: candY - LABEL_H, y2: candY + 2 }
+      const collides = placed.some((r) => rect.x1 < r.x2 && rect.x2 > r.x1 && rect.y1 < r.y2 && rect.y2 > r.y1)
+      if (!collides) { chosen = { x: baseX, y: candY }; break }
+    }
+    placed.push({ x1: chosen.x, x2: chosen.x + width, y1: chosen.y - LABEL_H, y2: chosen.y + 2 })
+    return { ...p, labelX: chosen.x, labelY: chosen.y, dotX, dotY }
+  })
+  return withLabels
+}
+
 function Pill({ active, onClick, children }) {
   return (
     <button
@@ -99,6 +127,7 @@ function CadenceScatter({ rows, accent }) {
   const y = (v) => PAD_T + plotH - (v / 100) * plotH
   const medianX = median(points.map((p) => p.total))
   const medianY = median(points.map((p) => p.seePct))
+  const labeled = declutterLabels(points, (p) => x(p.total), (p) => y(p.seePct))
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block', maxWidth: 640 }}>
@@ -110,12 +139,15 @@ function CadenceScatter({ rows, accent }) {
       <text x={W - PAD_R} y={H - 8} fontSize="9" fill={MUTED} textAnchor="end">{fmtNum(maxX)} posts</text>
       <text x={4} y={PAD_T + 8} fontSize="9" fill={MUTED}>100% See</text>
       <text x={4} y={H - PAD_B} fontSize="9" fill={MUTED}>0% See</text>
-      {points.map((p) => (
+      {labeled.map((p) => (
         <g key={p.company}>
-          <circle cx={x(p.total)} cy={y(p.seePct)} r={5} fill={accent} fillOpacity={0.88} stroke="#FFFFFF" strokeWidth={1.5}>
+          {Math.abs(p.labelY - p.dotY) > 4 && (
+            <line x1={p.dotX + 5} y1={p.dotY} x2={p.labelX - 2} y2={p.labelY - 3} stroke={SLATE_200} strokeWidth={1} />
+          )}
+          <circle cx={p.dotX} cy={p.dotY} r={5} fill={accent} fillOpacity={0.88} stroke="#FFFFFF" strokeWidth={1.5}>
             <title>{`${p.company}: ${p.total} posts in the period, ${p.seePct}% of classified output is See-stage`}</title>
           </circle>
-          <text x={x(p.total) + 8} y={y(p.seePct) + 3} fontSize="9.5" fill={INK_TEXT}>{p.company}</text>
+          <text x={p.labelX} y={p.labelY} fontSize="9.5" fill={INK_TEXT}>{p.company}</text>
         </g>
       ))}
     </svg>
