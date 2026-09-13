@@ -157,7 +157,7 @@ function CadenceScatter({ rows, accent }) {
 function GroupPanel({ title, rows, mode, view, accent }) {
   if (!rows?.length) return <div style={{ fontSize: 10.5, color: MUTED, fontStyle: 'italic' }}>No data for this group yet.</div>
   return (
-    <div>
+    <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 10 }}>{title}</div>
       <VolumeByCompanyChart rows={rows} mode={mode} view={view} />
       <div style={{ fontSize: 9.5, letterSpacing: '.1em', color: MUTED, fontWeight: 600, margin: '18px 0 8px' }}>
