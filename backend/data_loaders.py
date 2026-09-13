@@ -4,6 +4,7 @@ just a plain in-memory TTL cache instead of st.cache_data."""
 import base64
 import functools
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -16,19 +17,43 @@ from db.connection import get_conn
 _CACHE: dict = {}
 TTL_SECONDS = 600
 
+# Per-key locks so a cold cache doesn't stampede: without this, N concurrent
+# callers (e.g. the backend's warm-cache thread pool refreshing several
+# brands at once) all see "not cached" at the same instant and each opens
+# its own DB connection to reload the SAME table - confirmed as the actual
+# cause of live 500s after a fresh restart (up to 9 threads x 7 loaders,
+# comfortably exceeding Supabase's pooled connection limit). Keyed per
+# cache key (not one global lock) so unrelated tables still load in
+# parallel - only concurrent callers for the exact same key serialize.
+_LOCKS: dict = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _lock_for(key):
+    with _LOCKS_GUARD:
+        lock = _LOCKS.get(key)
+        if lock is None:
+            lock = _LOCKS[key] = threading.Lock()
+        return lock
+
 
 def ttl_cache(fn):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         key = (fn.__name__, args, tuple(sorted(kwargs.items())))
         now = time.time()
-        if key in _CACHE:
-            value, expires_at = _CACHE[key]
-            if now < expires_at:
-                return value
-        value = fn(*args, **kwargs)
-        _CACHE[key] = (value, now + TTL_SECONDS)
-        return value
+        cached = _CACHE.get(key)
+        if cached is not None and now < cached[1]:
+            return cached[0]
+        with _lock_for(key):
+            # Another thread may have already populated this key while we
+            # were waiting for the lock - re-check before hitting the DB.
+            cached = _CACHE.get(key)
+            if cached is not None and time.time() < cached[1]:
+                return cached[0]
+            value = fn(*args, **kwargs)
+            _CACHE[key] = (value, time.time() + TTL_SECONDS)
+            return value
     return wrapper
 
 
