@@ -3,6 +3,7 @@ import { api } from '../api'
 import ContextBar from '../components/ContextBar'
 import { SectionNumber, StageBar, MixCaption, ChannelBar, topChannelsLabel, Legend } from '../components/Widgets'
 import PostingCadence from '../components/PostingCadence'
+import BrandMatrix from '../components/BrandMatrix'
 import { competesBadgeStyle, fmtNum, verdict, mixLabel, attributeRows, STAGES, MUTED, INK_TEXT, SLATE_200, SLATE_600, DEEP_TEAL, TEAL, AMBER, TEAL_700, TRACK, INK } from '../styles'
 
 export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
@@ -84,6 +85,8 @@ export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
       )}
 
       <PostingCadence categories={data.categories.map((c) => c.name)} />
+
+      <BrandMatrix categories={data.categories.map((c) => c.name)} />
 
       {/* What the industry is actually saying */}
       <div style={{ background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '20px 22px', marginBottom: 14 }}>

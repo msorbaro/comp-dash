@@ -15,6 +15,8 @@ import math
 import os
 import threading
 import time
+from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -170,6 +172,19 @@ def _brand_category(name: str) -> str:
     own_groups = gm.loc[gm["name"] == name, "group_name"]
     non_own = [g for g in own_groups if g != "Our Brands"]
     return non_own[0] if non_own else (own_groups.iloc[0] if len(own_groups) else "Our Brands")
+
+
+def _logo_url(name: str, meta) -> Optional[str]:
+    """A small brand mark for chart markers - there's no logo asset pipeline
+    in this app, so this derives one from the brand's own website favicon
+    via Google's public favicon service (no API key, no scraping needed)."""
+    url = meta.loc[meta["name"] == name, "website_url"]
+    if url.empty or not url.iloc[0]:
+        return None
+    domain = urlparse(url.iloc[0]).netloc
+    if not domain:
+        return None
+    return f"https://www.google.com/s2/favicons?sz=64&domain={domain}"
 
 
 @app.get("/api/meta")
@@ -467,6 +482,9 @@ def get_landscape_volume(category: str = "Our Brands", days: int = 90):
         gm = _groups_meta()
         brand_names = sorted(gm.loc[gm["group_name"] == category, "name"].unique())
         rows = sd.company_volume_breakdown(brand_names, data, days=days)
+        meta = _competitor_meta()
+        for r in rows:
+            r["logo_url"] = _logo_url(r["company"], meta)
         rows.sort(key=lambda r: -r["total"])
         return _clean({"category": category, "days": days, "rows": rows})
 
