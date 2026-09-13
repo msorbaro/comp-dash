@@ -280,6 +280,48 @@ def stage_attribute_breakdown(brand_names: list, stage_name: str, data: dict, da
     return {"counts": counts, "total": total}
 
 
+def company_volume_breakdown(brand_names: list, data: dict, days: int = 90) -> list:
+    """Per-company posting/ad volume in the last `days` days, broken down two
+    ways: by funnel stage (See/Think/Do) and by real classified message
+    attribute - the numbers behind "how often does each company post, and
+    what is that output actually made of." `total` counts every real
+    post/ad in the window regardless of classification; the by_* counts are
+    only over items that do have a classification (same convention as the
+    mix/% fields elsewhere), so a by_* dict can undercount total slightly
+    for a brand with unclassified backlog.
+    Returns one dict per brand_names entry, in the same order given:
+    {"company": name, "total": n, "by_stage": {...}, "by_attribute": {...}}."""
+    from categorize.attribute_taxonomy import MESSAGE_ATTRIBUTES
+
+    out = []
+    for name in brand_names:
+        total = 0
+        by_stage = {s["name"]: 0 for s in STAGES}
+        by_attribute = {a: 0 for a in MESSAGE_ATTRIBUTES}
+        for ch in CHANNELS:
+            sub, date_col, funnel_col, _category_col = _channel_frame(name, ch["id"], data)
+            if sub.empty:
+                continue
+            sub = sub.copy()
+            if date_col and date_col in sub.columns:
+                sub[date_col] = pd.to_datetime(sub[date_col])
+                sub = sub.dropna(subset=[date_col])
+                if len(sub):
+                    now = _tz_naive_now(sub[date_col])
+                    sub = sub[sub[date_col] >= (now - dt.timedelta(days=days))]
+            total += len(sub)
+            if funnel_col and funnel_col in sub.columns:
+                for stage, cnt in sub[funnel_col].value_counts().items():
+                    if stage in by_stage:
+                        by_stage[stage] += int(cnt)
+            if "message_attribute" in sub.columns:
+                for attr, cnt in sub["message_attribute"].value_counts().items():
+                    if attr in by_attribute:
+                        by_attribute[attr] += int(cnt)
+        out.append({"company": name, "total": total, "by_stage": by_stage, "by_attribute": by_attribute})
+    return out
+
+
 def channel_stage_sample_texts(brand_names: list, channel_id: str, stage_name: str, data: dict, n_per_brand: int = 6) -> list:
     """Real copy from one CHANNEL, one See/Think/Do stage, across a given
     list of brands - the building block for comparing "what we say on this

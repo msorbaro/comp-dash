@@ -27,6 +27,23 @@ export const STAGES = [
 
 export const COMPETES_LABEL = { direct: 'DIRECT COMPETITOR', adjacent: 'ADJACENT INDUSTRY', 'read-across': 'READ-ACROSS', portfolio: 'OUR PORTFOLIO' }
 
+// Fixed hue per message attribute, applied everywhere this dimension is
+// charted - never re-derived or cycled per view, so the same attribute
+// always reads as the same color across the whole app.
+export const ATTRIBUTE_COLORS = {
+  'Safety & Protection': '#4E79A7',
+  'Trust & Reliability': '#59A14F',
+  'Price & Value': '#F28E2B',
+  'Convenience & Speed': '#76B7B2',
+  'Expertise & Professionalism': '#B07AA1',
+  'Local & Community': '#9C755F',
+  'Quality & Craftsmanship': '#E15759',
+  'Emotional & Lifestyle': '#FF9DA7',
+  'Social Proof & Reputation': '#EDC948',
+  'None Clear / Other': '#C7CDD4',
+}
+export const ATTRIBUTE_ORDER = Object.keys(ATTRIBUTE_COLORS)
+
 export function fmtNum(n) {
   if (n === null || n === undefined) return '—'
   if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'

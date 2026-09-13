@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import ContextBar from '../components/ContextBar'
 import { SectionNumber, StageBar, MixCaption, Legend } from '../components/Widgets'
+import PostingCadence from '../components/PostingCadence'
 import { competesBadgeStyle, fmtNum, verdict, mixLabel, attributeRows, STAGES, MUTED, INK_TEXT, SLATE_200, DEEP_TEAL, TEAL, AMBER, TEAL_700, TRACK, INK } from '../styles'
 
 export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
@@ -80,6 +81,8 @@ export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
           </div>
         </div>
       )}
+
+      <PostingCadence />
 
       {/* What the industry is actually saying */}
       <div style={{ background: '#FFFFFF', border: `1px solid ${SLATE_200}`, borderRadius: 12, padding: '20px 22px', marginBottom: 14 }}>

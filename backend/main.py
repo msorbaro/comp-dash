@@ -461,6 +461,24 @@ def get_compare(a: str, b: str):
     return _clean({"a": _profile_summary(pa, a), "b": _profile_summary(pb, b), "rows": rows})
 
 
+@app.get("/api/landscape/volume")
+def get_landscape_volume(category: str = "Our Brands", days: int = 90):
+    if category not in _all_categories():
+        raise HTTPException(404, f"Unknown category: {category}")
+    if days not in (30, 90, 180):
+        raise HTTPException(400, "days must be 30, 90, or 180")
+
+    def compute():
+        data = _get_data()
+        gm = _groups_meta()
+        brand_names = sorted(gm.loc[gm["group_name"] == category, "name"].unique())
+        rows = sd.company_volume_breakdown(brand_names, data, days=days)
+        rows.sort(key=lambda r: -r["total"])
+        return _clean({"category": category, "days": days, "rows": rows})
+
+    return _cached_page(f"volume:{category}:{days}", compute)
+
+
 @app.post("/api/refresh")
 def refresh_cache():
     dl.clear_cache()
