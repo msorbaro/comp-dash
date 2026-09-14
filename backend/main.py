@@ -360,15 +360,19 @@ def _compute_brand(name: str):
     })
 
 
-# The exact (n_creatives, type_filter) the Brand page requests on initial
-# load for every channel row - see frontend/src/screens/Brand.jsx's
-# SECTION_CREATIVE_FETCH_N. Only this combo is proactively warmed in the
-# background: the Channel "See all" page's much larger n=500 fetch stays
-# on live-compute-then-cache instead, since it's a less-common,
-# user-initiated click, not something worth costing every brand's warm
-# cycle more (that made ALL brands' channel data take much longer to
-# warm - a real regression, since the loop is per-brand-then-per-channel).
+# The (n_creatives, type_filter) combos the frontend requests with no
+# further user action: the Brand page's per-channel preview (see
+# frontend/src/screens/Brand.jsx's SECTION_CREATIVE_FETCH_N) and the
+# Channel "See all" page's full fetch (see Channel.jsx's CREATIVE_FETCH_N).
+# The "See all" size was left on live-compute-then-cache at first since it
+# used to be much more expensive - now that image loading is batched into
+# one query per channel instead of one per item, it's cheap enough to
+# proactively warm too, and a live "See all" click was still occasionally
+# failing when it happened to land while the warm loop was mid-cycle,
+# competing for the same throttled CPU/connections.
 _DEFAULT_CHANNEL_N = 16
+_FULL_CHANNEL_N = 500
+_WARMED_CHANNEL_COMBOS = (_DEFAULT_CHANNEL_N, _FULL_CHANNEL_N)
 
 
 @app.get("/api/brand/channel")
@@ -376,7 +380,7 @@ def get_channel(name: str, channel_id: str, n_creatives: int = 8, type_filter: s
     if channel_id not in sd.CHANNEL_BY_ID:
         raise HTTPException(404, f"Unknown channel: {channel_id}")
     key = f"channel:{name}:{channel_id}:{n_creatives}:{type_filter}"
-    is_default_view = n_creatives == _DEFAULT_CHANNEL_N and not type_filter
+    is_default_view = n_creatives in _WARMED_CHANNEL_COMBOS and not type_filter
     if is_default_view and _brand_category(name) == "Our Brands":
         result = _cached_page(key, lambda: _compute_channel(name, channel_id, n_creatives, type_filter), block_on_miss=False)
         if result is None:
@@ -565,26 +569,31 @@ def _warm_cache_loop():
                     our_brand_names,
                 ))
                 # Pass 2: the Brand deep-dive page fires one of these per
-                # active channel on load - previously totally uncached, so
-                # every visit re-ran synthesis + creative loading from
-                # scratch. Only the (16, "") preview combo is warmed here;
-                # "See all" (500) is a less-common, user-initiated click
-                # and stays on live-compute-then-cache instead of costing
-                # every warm cycle more.
-                channel_tasks = [(name, ch["id"]) for ch in sd.CHANNELS for name in our_brand_names]
+                # active channel on load (n=16), and the Channel "See all"
+                # page fires the full n=500 fetch - previously totally
+                # uncached, so every visit re-ran synthesis + creative
+                # loading from scratch. Both combos are warmed now that
+                # image loading is batched (one query per channel instead
+                # of one per item), which made n=500 cheap enough to warm
+                # too instead of leaving it to occasionally collide with
+                # this very warm cycle on a live user's request.
+                channel_tasks = [
+                    (name, ch["id"], n)
+                    for ch in sd.CHANNELS for name in our_brand_names for n in _WARMED_CHANNEL_COMBOS
+                ]
                 list(pool.map(
                     lambda t: _safe_refresh(
-                        f"channel:{t[0]}:{t[1]}:{_DEFAULT_CHANNEL_N}:",
-                        lambda: _compute_channel(t[0], t[1], _DEFAULT_CHANNEL_N, ""),
+                        f"channel:{t[0]}:{t[1]}:{t[2]}:",
+                        lambda: _compute_channel(t[0], t[1], t[2], ""),
                     ),
                     channel_tasks,
                 ))
                 # Default view for each Landscape volume-chart section
-                # (Posting Cadence, Brand Matrix, Value Map) - each fetches
-                # "Our Brands" plus a comparison category at a specific
-                # `days` window on first load. Not warming these left every
-                # one of those charts doing a live 3-4s compute on a cache
-                # that expired every 10 minutes.
+                # (Posting Cadence, Brand Matrix) - each fetches "Our
+                # Brands" plus a comparison category at a specific `days`
+                # window on first load. Not warming these left every one of
+                # those charts doing a live 3-4s compute on a cache that
+                # expired every 10 minutes.
                 volume_tasks = [(c, d) for c in ("Our Brands", "Automotive Full Service") for d in (90, 365)]
                 list(pool.map(
                     lambda t: _safe_refresh(f"volume:{t[0]}:{t[1]}", lambda: _compute_volume(t[0], t[1])),
