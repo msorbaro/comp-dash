@@ -123,6 +123,27 @@ KNOWN_NON_OWN_ADVERTISERS = {
         "Ace Best Buy, LLC", "Best Buy Team LLC", "Best Buy Shutters",
         "Best Buy Furniture", "Best Buy Neon Inc.",
     },
+    # "Goodyear" is also a common surname (three different people named
+    # Goodyear turned up running unrelated real estate/pizza/data-center
+    # ads) and a place name (the City of Goodyear, AZ government; an Urban
+    # Air trampoline-park franchisee named after that city). The real
+    # advertiser is "The Goodyear Tire & Rubber Company"; a real local
+    # dealer ad ("Duluth Goodyear") is left as owned. Confirmed wrong by
+    # the user (2026-09). Goodyear Poland is a real Goodyear-branded
+    # business but a different (non-US) entity from the one tracked here.
+    "Goodyear": {
+        "James Goodyear", "Nathan Goodyear", "Parker Goodyear", "Goodyear Rubber",
+        "GOODYEAR POLSKA", "RUTH H GOODYEAR", "City of Goodyear", "T2A Goodyear LLC",
+    },
+    # "Home Depot" false positives: unrelated small businesses with "Home
+    # Depot" in their own name (tiny homes, mobile homes, a local
+    # rewards-card store). Confirmed wrong by the user (2026-09). Home
+    # Depot Mexico is a real Home Depot-branded business but a different
+    # (non-US) entity from the one tracked here (homedepot.com).
+    "Home Depot": {
+        "Tiny Home Depot", "Mobile Home Depot, Inc", "M&C Home Depot",
+        "HOME DEPOT MEXICO", "Home Depot of Canada Inc",
+    },
 }
 
 # The reverse case: an advertiser name that does NOT match the brand name at

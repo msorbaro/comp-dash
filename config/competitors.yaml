@@ -203,7 +203,11 @@
 - name: Les Schwab Tires
   instagram_handle: lesschwabtires
   website_url: https://www.lesschwab.com
+  facebook_url: https://www.facebook.com/lesschwab
+  tiktok_handle: lesschwabtirecenters
+  youtube_url: https://www.youtube.com/lesschwab
   groups: [Automotive Full Service]
+  notes: "Facebook/TikTok/YouTube all corrected per user (2026-09) - the previous defaults (all guessed off the Instagram handle 'lesschwabtires') were wrong: real Facebook page is facebook.com/lesschwab (not '...tires'), real TikTok is @lesschwabtirecenters, real YouTube is a legacy /lesschwab URL (not an @handle). Does run paid FB/IG ads."
 
 - name: Take 5 Oil Change
   instagram_handle: take5oilchange
