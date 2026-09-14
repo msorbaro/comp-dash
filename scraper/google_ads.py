@@ -155,6 +155,18 @@ KNOWN_NON_OWN_ADVERTISERS = {
         "Reinis", "Reign Co", "Reinhold", "Reinders", "Reise AS", "REI - 19",
         "ECE REIS", "Rei Paki",
     },
+    # "Staples" is also a common surname - six different people named
+    # Staples turned up (a licensing trainer, a Pilates instructor, a
+    # vacation-rental host, a senior-living leasing agent, two with no
+    # headline), plus an unrelated auto-repair shop and a "Staples, Mark A"
+    # personal-name-format advertiser. Confirmed wrong by the user (2026-09).
+    # Note the case: the false-positive auto-repair one is "STAPLES INC"
+    # (all caps) - a different literal advertiser string from the real
+    # "Staples Inc" (mixed case), which is kept.
+    "Staples": {
+        "Rick Staples", "Karyn Staples", "Emily Staples", "Justin Staples",
+        "Marcus Staples", "Jordan Staples", "STAPLES MARK, A", "STAPLES INC",
+    },
 }
 
 # The reverse case: an advertiser name that does NOT match the brand name at
