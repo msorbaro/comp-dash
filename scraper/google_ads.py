@@ -144,6 +144,17 @@ KNOWN_NON_OWN_ADVERTISERS = {
         "Tiny Home Depot", "Mobile Home Depot, Inc", "M&C Home Depot",
         "HOME DEPOT MEXICO", "Home Depot of Canada Inc",
     },
+    # "REI" is only 3 letters, so the substring match below matches it
+    # inside all kinds of unrelated names - people (Reinis, Ece Reis, Rei
+    # Paki), jewelers (Reinhold), a watch seller (Reign Co), a lawn-care
+    # supplier (Reinders), a Norwegian tour operator (Reise AS), and an
+    # unrelated Albanian rafting company literally named "REI - 19".
+    # Confirmed wrong by the user (2026-09). The real advertiser is
+    # "Recreational Equipment Inc" (search_term "rei.com").
+    "REI": {
+        "Reinis", "Reign Co", "Reinhold", "Reinders", "Reise AS", "REI - 19",
+        "ECE REIS", "Rei Paki",
+    },
 }
 
 # The reverse case: an advertiser name that does NOT match the brand name at
@@ -162,6 +173,13 @@ KNOWN_OWN_ADVERTISERS = {
     # "Midas" in their name (see KNOWN_NON_OWN_ADVERTISERS below) were marked
     # TRUE via the generic substring match.
     "Midas": {"Moroch Digital Solutions, LLC", "Moroch"},
+    # Same shared-agency-name pattern as Midas: REI's real ads run under
+    # its full legal name, which the generic substring match doesn't catch
+    # ("recreationalequipmentinc" doesn't contain "rei"). Confirmed by user
+    # (2026-09): 20 genuine REI ads (search_term "rei.com", including "Top
+    # Rated Hiking Shoes | REI Co-op") sat with is_own_ad FALSE while 20
+    # unrelated name collisions (see KNOWN_NON_OWN_ADVERTISERS) were TRUE.
+    "REI": {"Recreational Equipment Inc"},
 }
 
 

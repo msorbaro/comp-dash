@@ -348,9 +348,18 @@ def _compute_brand(name: str):
     data = _get_data()
     profile = sd.company_profile(name, data)
     rows = [{k: v for k, v in r.items() if k not in ("_sub", "_date_col")} for r in profile["rows"]]
-    rows = [_attach_synthesis(name, r, data) for r in rows]
+    # Each row's synthesis and the brand positioning call are independent
+    # Claude calls (one per active channel, plus one for positioning) -
+    # running them sequentially took 28s for an active brand like PetSmart,
+    # long enough to time out a cold visit since only "Our Brands" pages are
+    # proactively warmed; every other tracked company computes live on
+    # first request. Run them concurrently instead, same pattern as the
+    # warm-cache loop.
+    with ThreadPoolExecutor(max_workers=len(rows) + 1) as pool:
+        positioning_future = pool.submit(synthesize.brand_positioning, name, sd.brand_sample_texts(name, data))
+        rows = list(pool.map(lambda r: _attach_synthesis(name, r, data), rows))
+        positioning = positioning_future.result()
     lead_id = profile["lead"]["channel"]["id"]
-    positioning = synthesize.brand_positioning(name, sd.brand_sample_texts(name, data))
     return _clean({
         "company": name, "category": _brand_category(name), "mix": profile["mix"],
         "total_all_time": profile["total_all_time"], "monthly_output": profile["monthly_output"],
