@@ -108,6 +108,21 @@ KNOWN_NON_OWN_ADVERTISERS = {
         "MIDAS IT", "Mic midas", "Midas LLC", "Midas Media", "MIDAS STAR 1",
         "MIDAS FRANCE", "Midas S.r.l.", "Midaspire INC", "Midas Art Ltd", "Tech Midas LLC",
     },
+    # Same generic-word problem as Midas above - "Tuffy" is also a real pet
+    # food/treats brand name and a truck-accessory product line ("Bestop
+    # Tuffy" security consoles), unrelated to Tuffy Tire & Auto Service.
+    # Confirmed wrong by the user (2026-09).
+    "Tuffy": {"Bestop Tuffy, LLC", "Tuffy’s Pet Foods, Inc.", "Tuffy's Pet Treats, Inc."},
+    # "Best Buy" is common enough as a business name/slogan that it turns up
+    # a long tail of totally unrelated small businesses (mobile homes, real
+    # estate, jerky, shutters, neon signs, furniture) - confirmed wrong by
+    # the user (2026-09). The real advertiser is "Best Buy Purchasing LLC"
+    # (or occasionally the exact legal name "BEST BUY CO., INC.").
+    "Best Buy": {
+        "Best Buy Homes", "Best Buyerz LLC", "Best Buy in Town", "Best Buy Housing",
+        "Ace Best Buy, LLC", "Best Buy Team LLC", "Best Buy Shutters",
+        "Best Buy Furniture", "Best Buy Neon Inc.",
+    },
 }
 
 # The reverse case: an advertiser name that does NOT match the brand name at
@@ -141,15 +156,21 @@ def _is_own_ad(advertiser_name: str, competitor_name: str) -> bool:
     return b in a or a in b
 
 
-# Aliases for each "Our Brands" storefront, used only to catch a real,
-# confirmed failure mode: a shared advertiser account (like "Mavis Tire
-# Supply LLC", which runs ads for Mavis, Brakes Plus, and Express Oil) can
-# turn up a SIBLING brand's ad when searching a DIFFERENT sibling's domain
-# as a keyword. Being the right advertiser account doesn't mean every one
-# of its ads is for the storefront we're currently scraping - confirmed
-# directly: a live "NTB - National Tire & Battery" local ad was returned
-# while scraping Mavis's domain and, since the advertiser matched
-# KNOWN_OWN_ADVERTISERS, got attributed to Mavis's own ads.
+# Aliases for brands whose ads can bleed into another tracked brand's
+# results via a shared advertiser account, used only to catch a real,
+# confirmed failure mode: e.g. "Mavis Tire Supply LLC" runs ads for Mavis,
+# Brakes Plus, and Express Oil, and can turn up a SIBLING brand's ad when
+# searching a DIFFERENT sibling's domain as a keyword. Being the right
+# advertiser account doesn't mean every one of its ads is for the storefront
+# we're currently scraping - confirmed directly: a live "NTB - National Tire
+# & Battery" local ad was returned while scraping Mavis's domain and, since
+# the advertiser matched KNOWN_OWN_ADVERTISERS, got attributed to Mavis's
+# own ads. Originally scoped to "Our Brands" siblings only, but the same
+# thing happens across a shared advertiser between an "Our Brands" storefront
+# and an ordinary tracked competitor - confirmed for Tire Kingdom (2026-09):
+# its real advertiser account, "Tire Kingdom Inc", also runs Big O Tires
+# ads (both are TBC Corp-owned), so a couple of "Tire Kingdom Inc" ads whose
+# actual headline was for Big O Tires got wrongly credited to Tire Kingdom.
 SIBLING_BRAND_ALIASES = {
     "Mavis Discount Tire / Mavis Tires and Brakes": ("mavis",),
     "Brakes Plus": ("brakes plus",),
@@ -160,14 +181,15 @@ SIBLING_BRAND_ALIASES = {
     "Tuffy": ("tuffy",),
     "Pep Boys": ("pep boys",),
     "Midas": ("midas",),
+    "Big O Tires": ("big o tires",),
 }
 
 
 def _headline_names_other_brand(headline: str, competitor_name: str) -> bool:
     """True if this ad's own visible headline explicitly names a different
-    tracked "Our Brands" storefront than the one it's about to be
+    tracked brand (in SIBLING_BRAND_ALIASES) than the one it's about to be
     attributed to - the actual evidence that a shared-advertiser match is
-    for a sibling brand, not this one."""
+    for a different brand, not this one."""
     if not headline:
         return False
     text = headline.lower()
