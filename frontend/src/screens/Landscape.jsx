@@ -4,6 +4,7 @@ import ContextBar from '../components/ContextBar'
 import { SectionNumber, StageBar, MixCaption, ChannelBar, topChannelsLabel, Legend, PageSkeleton } from '../components/Widgets'
 import PostingCadence from '../components/PostingCadence'
 import BrandMatrix from '../components/BrandMatrix'
+import MessagingStudy from '../components/MessagingStudy'
 import { competesBadgeStyle, fmtNum, verdict, mixLabel, attributeRows, STAGES, MUTED, INK_TEXT, SLATE_200, SLATE_600, DEEP_TEAL, TEAL, AMBER, TEAL_700, TRACK, INK } from '../styles'
 
 export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
@@ -223,6 +224,8 @@ export default function Landscape({ meta, onOpenBrand, onOpenCategory }) {
           </div>
         ))}
       </div>
+
+      <MessagingStudy onOpenBrand={onOpenBrand} />
     </div>
   )
 }

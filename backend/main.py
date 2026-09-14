@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from urllib.parse import urlparse
 
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -536,6 +537,186 @@ def _compute_volume(category: str, days: int):
         r["logo_url"] = _logo_url(r["company"], meta)
     rows.sort(key=lambda r: -r["total"])
     return _clean({"category": category, "days": days, "rows": rows})
+
+
+@app.get("/api/landscape/messaging-study")
+def get_messaging_study():
+    return _cached_page("messaging-study", _compute_messaging_study)
+
+
+def _compute_messaging_study():
+    """Live-computed backing for the Landscape page's "Messaging Study"
+    section - a 10-matrix competitive messaging audit (territory heatmap,
+    gap map vs. benchmarks, funnel posture, channel x territory, content
+    mix, homepage leads, channel footprint, ad longevity, creative variety,
+    and organic engagement by territory), plus verbatim quotes and a
+    mechanically-generated synthesis. Pure pandas aggregation over the
+    already-cached load_all() tables - no LLM calls, so this is cheap
+    enough to compute on a normal cache miss rather than needing the
+    proactive warm-cache loop."""
+    from categorize.attribute_taxonomy import MESSAGE_ATTRIBUTES
+
+    data = _get_data()
+    gm = _groups_meta()
+    meta = _competitor_meta()
+
+    def _brands_in(group_name):
+        return sorted(gm.loc[gm["group_name"] == group_name, "name"].unique())
+
+    portfolio = [n for n in _all_brand_names() if _brand_category(n) == "Our Brands"]
+    afs = _brands_in("Automotive Full Service")
+    bic = _brands_in("Best in Class Marketing")
+    lowint = _brands_in("Low Interest / Functional Categories")
+    bigbox = _brands_in("Big Box Retail + Services")
+    # "Adjacent" has no single matching group - it's the union of the 4
+    # groups CATEGORY_COMPETES already tags "adjacent" (see top of file).
+    adj = sorted({n for g in ("Oil Brands", "Car Washes", "Online Tires", "Automotive Discount") for n in _brands_in(g)})
+    all_brands = _all_brand_names()
+    core_brands = sorted(set(portfolio) | set(afs))
+
+    # Matrix 01 - territory heatmap: per-brand attribute %, two brand sets
+    # (the frontend toggle switches between these, both precomputed here
+    # rather than round-tripping on toggle).
+    def _heatmap_rows(brand_names):
+        rows = sd.company_volume_breakdown(brand_names, data, days=365)
+        out = []
+        for r in rows:
+            attr_total = sum(r["by_attribute"].values())
+            pct = {a: (round(c / attr_total * 100, 1) if attr_total else 0.0) for a, c in r["by_attribute"].items()}
+            out.append({"company": r["company"], "category": _brand_category(r["company"]), "n": r["total"], "attr": pct})
+        return out
+
+    heatmap = {"core": _heatmap_rows(core_brands), "all": _heatmap_rows(all_brands)}
+
+    # Matrix 02 - gap map: portfolio's pooled territory mix vs. 5 benchmark
+    # segments, all using the same pooled (not per-brand-averaged) measure.
+    seg_mix = {
+        "own": sd.territory_mix(portfolio, data), "afs": sd.territory_mix(afs, data),
+        "adj": sd.territory_mix(adj, data), "bic": sd.territory_mix(bic, data),
+        "lowint": sd.territory_mix(lowint, data), "bigbox": sd.territory_mix(bigbox, data),
+    }
+    gap = []
+    for attr in MESSAGE_ATTRIBUTES:
+        own_v, afs_v = seg_mix["own"]["attr"][attr], seg_mix["afs"]["attr"][attr]
+        gap.append({
+            "attribute": attr, "own": own_v, "afs": afs_v,
+            "adj": seg_mix["adj"]["attr"][attr], "bic": seg_mix["bic"]["attr"][attr],
+            "lowint": seg_mix["lowint"]["attr"][attr], "bigbox": seg_mix["bigbox"]["attr"][attr],
+            "delta_vs_afs": round(own_v - afs_v, 1),
+        })
+    gap.sort(key=lambda g: g["delta_vs_afs"])
+
+    # Matrix 03 - funnel posture: portfolio + direct competitors together,
+    # sorted by Do% descending, same as the artifact.
+    funnel_posture = []
+    for r in sd.company_volume_breakdown(core_brands, data, days=365):
+        stage_total = sum(r["by_stage"].values())
+        pct = {s: (round(c / stage_total * 100, 1) if stage_total else 0.0) for s, c in r["by_stage"].items()}
+        funnel_posture.append({"company": r["company"], "own": r["company"] in portfolio, "n": r["total"], **pct})
+    funnel_posture.sort(key=lambda r: -r["Do"])
+
+    # Matrix 04 - channel x territory: portfolio vs. best-in-class, per channel.
+    channel_territory = [
+        {"channel": ch, "own": sd.territory_mix(portfolio, data, channel_id=ch["id"]),
+         "bic": sd.territory_mix(bic, data, channel_id=ch["id"])}
+        for ch in sd.CHANNELS
+    ]
+
+    # Matrix 05 - content mix, portfolio + direct competitors.
+    content_mix = sd.content_mix_breakdown(core_brands, data, days=365)
+    for r in content_mix:
+        r["own"] = r["company"] in portfolio
+
+    # Matrix 06 - homepage leads (classified theme, not literal headline text).
+    homepage_leads = sd.homepage_leads(core_brands, data)
+    for r in homepage_leads:
+        r["own"] = r["company"] in portfolio
+
+    # Matrix 07 - footprint, with a "tracked" flag per channel so "no
+    # content" and "no handle recorded" don't read as the same thing.
+    footprint = sd.channel_footprint(core_brands, data)
+    handle_col = {
+        "meta_ads": "facebook_url", "ig_organic": "instagram_handle",
+        "tiktok": "tiktok_handle", "youtube": "youtube_url", "x": "x_handle",
+    }
+    for r in footprint:
+        row_meta = meta.loc[meta["name"] == r["company"]]
+        tracked = {}
+        for ch_id, col in handle_col.items():
+            val = row_meta.iloc[0].get(col) if not row_meta.empty and col in row_meta.columns else None
+            tracked[ch_id] = bool(val) and pd.notna(val)
+        r["tracked"] = tracked
+        r["own"] = r["company"] in portfolio
+
+    # Matrix 08 - ad longevity (median days a search creative has been running).
+    ad_longevity = sd.ad_longevity(core_brands, data)
+    for r in ad_longevity:
+        r["own"] = r["company"] in portfolio
+
+    # Matrix 09 - creative variety (% distinct copy in sampled Meta ads).
+    creative_variety = sd.creative_variety(core_brands, data)
+    for r in creative_variety:
+        r["own"] = r["company"] in portfolio
+
+    # Matrix 10 - engagement by territory, pooled across every tracked brand.
+    engagement_by_territory = sd.engagement_by_territory(data, days=365)
+
+    # Evidence: verbatim quotes - portfolio's own paid social, and
+    # competitors' copy in the territories the gap map flags as vacated.
+    vacated = [g["attribute"] for g in gap if g["delta_vs_afs"] < 0][:3]
+    quotes_own = sd.messaging_quotes(portfolio, data, channel_id="meta_ads", n=6)
+    quotes_gap = sd.messaging_quotes(afs, data, attributes=vacated, n=6)
+
+    # Synthesis - mechanical template sentences built from the numbers
+    # already computed above, not an LLM call (per user preference: fast,
+    # free, deterministic, no new place for the analysis to say something
+    # wrong).
+    synthesis = []
+    widest = min(gap, key=lambda g: g["delta_vs_afs"])
+    strongest = max(gap, key=lambda g: g["delta_vs_afs"])
+    synthesis.append({
+        "finding": f"The portfolio runs {abs(widest['delta_vs_afs']):.1f} points lighter on "
+                   f"{widest['attribute']} than direct full-service competitors "
+                   f"({widest['own']}% vs {widest['afs']}%).",
+        "confidence": "high" if (widest["own"] + widest["afs"]) > 5 else "directional",
+    })
+    synthesis.append({
+        "finding": f"The portfolio's strongest relative territory is {strongest['attribute']} "
+                   f"({strongest['own']}% vs {strongest['afs']}% for direct competitors, "
+                   f"+{strongest['delta_vs_afs']:.1f} points).",
+        "confidence": "high",
+    })
+    own_do, afs_do = seg_mix["own"]["funnel"].get("Do", 0), seg_mix["afs"]["funnel"].get("Do", 0)
+    synthesis.append({
+        "finding": f"{own_do}% of portfolio messaging is bottom-funnel (Do), versus {afs_do}% for "
+                   f"direct competitors.",
+        "confidence": "high",
+    })
+    organic_ids = [ch["id"] for ch in sd.CHANNELS if not ch["paid"] and ch["id"] != "homepage"]
+    no_organic = [r["company"] for r in footprint if r["own"] and not any(r[cid] for cid in organic_ids)]
+    if no_organic:
+        synthesis.append({
+            "finding": f"{len(no_organic)} of {len(portfolio)} portfolio brands published no organic "
+                       f"content in the last 12 months: {', '.join(no_organic)}.",
+            "confidence": "high",
+        })
+    dup = [r for r in creative_variety if r["own"] and r["distinct_pct"] is not None]
+    if dup:
+        lowest = min(dup, key=lambda r: r["distinct_pct"])
+        synthesis.append({
+            "finding": f"{lowest['company']}'s paid social runs at {lowest['distinct_pct']}% creative "
+                       f"variety ({lowest['n']} ads sampled) - the most duplicated in the portfolio.",
+            "confidence": "directional",
+        })
+
+    return _clean({
+        "window_days": 365, "heatmap": heatmap, "gap": gap, "seg_mix": seg_mix,
+        "funnel_posture": funnel_posture, "channel_territory": channel_territory,
+        "content_mix": content_mix, "homepage_leads": homepage_leads, "footprint": footprint,
+        "ad_longevity": ad_longevity, "creative_variety": creative_variety,
+        "engagement_by_territory": engagement_by_territory,
+        "quotes_own": quotes_own, "quotes_gap": quotes_gap, "synthesis": synthesis,
+    })
 
 
 @app.post("/api/refresh")

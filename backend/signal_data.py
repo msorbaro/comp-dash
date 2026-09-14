@@ -326,6 +326,242 @@ def company_volume_breakdown(brand_names: list, data: dict, days: int = 90) -> l
     return out
 
 
+def territory_mix(brand_names: list, data: dict, channel_id: str = None, days: int = 365) -> dict:
+    """Pooled (not per-brand-averaged) message_attribute and funnel_stage %
+    breakdown across every item from the given brands in the last `days`
+    days, optionally scoped to one channel. Unlike stage_attribute_breakdown
+    (scoped to ONE funnel stage, returns raw counts), this pools every stage
+    together and returns %, keyed for direct display - the backing data for
+    the gap-map (matrix 02), channel x territory (matrix 04, called once per
+    channel), and the engagement grouping (matrix 10)."""
+    from categorize.attribute_taxonomy import MESSAGE_ATTRIBUTES
+
+    channels = [CHANNEL_BY_ID[channel_id]] if channel_id else CHANNELS
+    attr_counts = {a: 0 for a in MESSAGE_ATTRIBUTES}
+    stage_counts = {s["name"]: 0 for s in STAGES}
+    n = 0
+    for name in brand_names:
+        for ch in channels:
+            sub, date_col, funnel_col, _category_col = _channel_frame(name, ch["id"], data)
+            if sub.empty:
+                continue
+            sub = sub.copy()
+            if date_col and date_col in sub.columns:
+                sub[date_col] = pd.to_datetime(sub[date_col])
+                sub = sub.dropna(subset=[date_col])
+                if len(sub):
+                    now = _tz_naive_now(sub[date_col])
+                    sub = sub[sub[date_col] >= (now - dt.timedelta(days=days))]
+            n += len(sub)
+            if "message_attribute" in sub.columns:
+                for attr, cnt in sub["message_attribute"].value_counts().items():
+                    if attr in attr_counts:
+                        attr_counts[attr] += int(cnt)
+            if funnel_col and funnel_col in sub.columns:
+                for stage, cnt in sub[funnel_col].value_counts().items():
+                    if stage in stage_counts:
+                        stage_counts[stage] += int(cnt)
+    attr_total = sum(attr_counts.values()) or 1
+    stage_total = sum(stage_counts.values()) or 1
+    return {
+        "attr": {a: round(c / attr_total * 100, 1) for a, c in attr_counts.items()},
+        "funnel": {s: round(c / stage_total * 100, 1) for s, c in stage_counts.items()},
+        "n": n,
+    }
+
+
+def content_mix_breakdown(brand_names: list, data: dict, days: int = 365) -> list:
+    """Per-company % breakdown by content `category` (Product Feature, Promo,
+    Educational, etc - a different dimension from message_attribute) in the
+    last `days` days - matrix 05, "content mix" (what a post IS, as opposed
+    to what claim it's making). Only channels whose category_col is the real
+    13-value content taxonomy are counted - _channel_frame returns
+    "ad_format" for search and "theme" for homepage, which are different
+    vocabularies and would corrupt this breakdown if included."""
+    from categorize.classify import CATEGORIES
+
+    out = []
+    for name in brand_names:
+        counts = {c: 0 for c in CATEGORIES}
+        total = 0
+        for ch in CHANNELS:
+            sub, date_col, _funnel_col, category_col = _channel_frame(name, ch["id"], data)
+            if sub.empty or category_col != "category":
+                continue
+            sub = sub.copy()
+            if date_col and date_col in sub.columns:
+                sub[date_col] = pd.to_datetime(sub[date_col])
+                sub = sub.dropna(subset=[date_col])
+                if len(sub):
+                    now = _tz_naive_now(sub[date_col])
+                    sub = sub[sub[date_col] >= (now - dt.timedelta(days=days))]
+            for cat, cnt in sub[category_col].value_counts().items():
+                if cat in counts:
+                    counts[cat] += int(cnt)
+                    total += int(cnt)
+        pct = {c: (round(cnt / total * 100, 1) if total else 0.0) for c, cnt in counts.items()}
+        out.append({"company": name, "total": total, "pct": pct})
+    return out
+
+
+def homepage_leads(brand_names: list, data: dict) -> list:
+    """Each brand's most recently captured homepage theme (matrix 06) - theme
+    is a classified label (MESSAGING_THEMES), not literal headline text,
+    since the tracker doesn't store the page's actual copy as structured
+    text."""
+    df = data["homepages"]
+    out = []
+    for name in brand_names:
+        sub = df[df["competitor_name"] == name]
+        if sub.empty:
+            out.append({"company": name, "theme": None, "captured_at": None})
+            continue
+        sub = sub.copy()
+        sub["captured_at"] = pd.to_datetime(sub["captured_at"])
+        latest = sub.sort_values("captured_at", ascending=False).iloc[0]
+        out.append({
+            "company": name,
+            "theme": latest.get("theme"),
+            "captured_at": latest["captured_at"].strftime("%b %d, %Y") if pd.notna(latest["captured_at"]) else None,
+        })
+    return out
+
+
+def channel_footprint(brand_names: list, data: dict) -> list:
+    """Per-brand x channel: does this brand have ANY tracked content at all
+    (all-time, not windowed) - matrix 07. Presence/absence only; the caller
+    is responsible for distinguishing "genuinely zero" from "handle not
+    tracked" using competitor_meta, since that lives outside this module."""
+    out = []
+    for name in brand_names:
+        row = {"company": name}
+        for ch in CHANNELS:
+            sub, _date_col, _funnel_col, _category_col = _channel_frame(name, ch["id"], data)
+            row[ch["id"]] = bool(len(sub))
+        out.append(row)
+    return out
+
+
+def ad_longevity(brand_names: list, data: dict) -> list:
+    """Median days a brand's paid-search creative has been running
+    (approx_days_shown, already computed by the scraper from
+    first_shown/last_shown) - matrix 08, always-on vs. burst. Only counts
+    the brand's own ads (search channel is already filtered to
+    is_own_ad==True by _channel_frame)."""
+    out = []
+    for name in brand_names:
+        sub, _date_col, _funnel_col, _category_col = _channel_frame(name, "search", data)
+        if sub.empty or "approx_days_shown" not in sub.columns:
+            out.append({"company": name, "median_days": None, "n": 0})
+            continue
+        vals = sub["approx_days_shown"].dropna()
+        out.append({
+            "company": name,
+            "median_days": round(vals.median()) if len(vals) else None,
+            "n": int(len(vals)),
+        })
+    return out
+
+
+def creative_variety(brand_names: list, data: dict) -> list:
+    """% of a brand's sampled Meta (IG/FB) ads with genuinely distinct ad
+    copy - matrix 09, creative duplication. Uses headline first, falling
+    back to caption, matching _text_series_for's general preference for the
+    ad's own visible copy."""
+    out = []
+    for name in brand_names:
+        sub, _date_col, _funnel_col, _category_col = _channel_frame(name, "meta_ads", data)
+        if sub.empty:
+            out.append({"company": name, "distinct_pct": None, "n": 0})
+            continue
+        text = sub["headline"].where(sub["headline"].notna() & (sub["headline"] != ""), sub.get("caption"))
+        text = text.dropna()
+        text = text[text.str.strip() != ""]
+        n = len(text)
+        distinct = text.nunique()
+        out.append({
+            "company": name,
+            "distinct_pct": round(distinct / n * 100, 1) if n else None,
+            "n": int(n),
+        })
+    return out
+
+
+def engagement_by_territory(data: dict, days: int = 365) -> dict:
+    """Median and mean per-post engagement, grouped by message_attribute,
+    pooled across every tracked brand's ORGANIC content only (Instagram,
+    TikTok, YouTube, X - not paid ads/search, which don't carry a comparable
+    per-item engagement signal) - matrix 10, the one matrix that measures
+    response rather than intent."""
+    from categorize.attribute_taxonomy import MESSAGE_ATTRIBUTES
+
+    table_by_channel = {"ig_organic": "posts", "tiktok": "tiktok", "youtube": "youtube", "x": "x_posts"}
+    by_attr = {a: [] for a in MESSAGE_ATTRIBUTES}
+    for ch_id, table_key in table_by_channel.items():
+        df = data[table_key]
+        if df.empty or "message_attribute" not in df.columns:
+            continue
+        sub = df.copy()
+        date_col = "posted_at"
+        if date_col in sub.columns:
+            sub[date_col] = pd.to_datetime(sub[date_col])
+            sub = sub.dropna(subset=[date_col])
+            if len(sub):
+                now = _tz_naive_now(sub[date_col])
+                sub = sub[sub[date_col] >= (now - dt.timedelta(days=days))]
+        eng = _engagement_series(ch_id, sub)
+        if eng is None:
+            continue
+        sub = sub.assign(_eng=eng)
+        for attr, group in sub.groupby("message_attribute")["_eng"]:
+            if attr in by_attr:
+                by_attr[attr].extend(group.dropna().tolist())
+    out = {}
+    for attr, vals in by_attr.items():
+        if vals:
+            s = pd.Series(vals)
+            out[attr] = {"median": round(s.median()), "mean": round(s.mean()), "n": len(vals)}
+        else:
+            out[attr] = {"median": None, "mean": None, "n": 0}
+    return out
+
+
+def messaging_quotes(brand_names: list, data: dict, attributes: list = None, channel_id: str = None, n: int = 6) -> list:
+    """Verbatim examples of real copy from the given brands, optionally
+    restricted to specific message_attribute territories (e.g. the ones a
+    gap-map flags as vacated) and/or one channel - backs the "copy itself"
+    evidence section. Returns [{"company", "channel_id", "attribute", "text"}]."""
+    out = []
+    channels = [CHANNEL_BY_ID[channel_id]] if channel_id else CHANNELS
+    for name in brand_names:
+        for ch in channels:
+            if len(out) >= n:
+                break
+            sub, date_col, _funnel_col, _category_col = _channel_frame(name, ch["id"], data)
+            if sub.empty or "message_attribute" not in sub.columns:
+                continue
+            if attributes:
+                sub = sub[sub["message_attribute"].isin(attributes)]
+                if sub.empty:
+                    continue
+            if date_col and date_col in sub.columns:
+                sub = sub.sort_values(date_col, ascending=False)
+            text_series = _text_series_for(sub, ch["id"]).dropna()
+            text_series = text_series[text_series.str.strip() != ""]
+            text_series = text_series.drop_duplicates()
+            for idx, text in text_series.head(2).items():
+                out.append({
+                    "company": name, "channel_id": ch["id"],
+                    "attribute": sub.loc[idx, "message_attribute"] if idx in sub.index else None,
+                    "text": text[:220],
+                })
+                if len(out) >= n:
+                    break
+        if len(out) >= n:
+            break
+    return out
+
+
 def category_channel_sample_texts(brand_names: list, channel_id: str, data: dict, n_per_brand: int = 6) -> list:
     """A cross-BRAND sample of real copy on one channel, for
     synthesize.category_channel_themes - the point is finding recurring

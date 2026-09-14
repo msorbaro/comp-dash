@@ -32,6 +32,7 @@ export const api = {
     get(`/brand/channel?name=${encodeURIComponent(name)}&channel_id=${encodeURIComponent(channelId)}&n_creatives=${n}&type_filter=${encodeURIComponent(typeFilter)}`),
   category: (name, focusBrand) => get(`/category?name=${encodeURIComponent(name)}&focus_brand=${encodeURIComponent(focusBrand || '')}`),
   landscapeVolume: (category, days = 90) => get(`/landscape/volume?category=${encodeURIComponent(category)}&days=${days}`),
+  messagingStudy: () => get('/landscape/messaging-study'),
   compare: (a, b) => get(`/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
   refresh: () => fetch(BASE + '/refresh', { method: 'POST' }),
 }

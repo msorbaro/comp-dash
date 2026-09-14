@@ -44,6 +44,38 @@ export const ATTRIBUTE_COLORS = {
 }
 export const ATTRIBUTE_ORDER = Object.keys(ATTRIBUTE_COLORS)
 
+// Short labels for the same 10 attributes, for tight chart axes/legends
+// where the full name ("Emotional & Lifestyle") doesn't fit.
+export const ATTRIBUTE_SHORT = {
+  'Safety & Protection': 'Safety', 'Trust & Reliability': 'Trust', 'Price & Value': 'Price',
+  'Convenience & Speed': 'Speed', 'Expertise & Professionalism': 'Expertise',
+  'Local & Community': 'Local', 'Quality & Craftsmanship': 'Quality',
+  'Emotional & Lifestyle': 'Emotion', 'Social Proof & Reputation': 'Social proof',
+  'None Clear / Other': 'Unclear',
+}
+
+function _hexByte(n) {
+  return Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0')
+}
+function _lerpHex(a, b, t) {
+  const parse = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))
+  const [ar, ag, ab] = parse(a)
+  const [br, bg, bb] = parse(b)
+  return `#${_hexByte(ar + (br - ar) * t)}${_hexByte(ag + (bg - ag) * t)}${_hexByte(ab + (bb - ab) * t)}`
+}
+// Sequential heat ramp for the territory heatmap (matrix 01) - one hue,
+// light to dark, interpolated between the app's own TEAL_WASH and
+// DEEP_TEAL tokens rather than a separate foreign color scheme. `pct` is
+// a 0-100 share; values above HEAT_MAX read as fully saturated.
+const HEAT_MAX = 60
+export function heatColor(pct) {
+  const t = Math.max(0, Math.min(1, (pct || 0) / HEAT_MAX))
+  return _lerpHex(TEAL_WASH, DEEP_TEAL, t)
+}
+export function heatTextColor(pct) {
+  return (pct || 0) / HEAT_MAX > 0.55 ? '#FFFFFF' : INK_TEXT
+}
+
 // Mirrors backend/signal_data.py's CHANNELS list (id/name/paid) - kept as a
 // small duplicated constant here the same way STAGES already is, since the
 // channel-breakdown API responses are keyed by these raw ids, not names.
