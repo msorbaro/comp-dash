@@ -561,14 +561,14 @@ def creative_rows(name: str, channel_id: str, data: dict, n: int, loaders: dict,
     # be killed by the platform's own request timeout.
     image_map, video_map = {}, {}
     if channel_id == "ig_organic":
-        image_map = loaders["ig_thumb_bulk"](top["id"].tolist())
+        image_map = loaders["ig_thumb_bulk"](tuple(sorted(top["id"].tolist())))
     elif channel_id == "meta_ads":
-        image_map = loaders["ad_creative_bulk"](top["id"].tolist())
+        image_map = loaders["ad_creative_bulk"](tuple(sorted(top["id"].tolist())))
         if "has_video" in top.columns:
             video_ids = top.loc[top["has_video"] == True, "id"].tolist()  # noqa: E712
             video_map = {vid: loaders["ad_video"](vid) for vid in video_ids}
     elif channel_id == "search":
-        image_map = loaders["gads_creative_bulk"](top["id"].tolist())
+        image_map = loaders["gads_creative_bulk"](tuple(sorted(top["id"].tolist())))
 
     rows = []
     for _, r in top.iterrows():

@@ -289,15 +289,24 @@ def _bulk_blob_map(table: str, col: str, ids: list) -> dict:
     return {row_id: to_data_uri(blob) for row_id, blob in rows if blob}
 
 
-def load_ig_thumbnails_bulk(ids: list) -> dict:
+# @ttl_cache (not just a bare function) matters here, not only for repeat-
+# request speed: it's what gives these bulk queries the same per-key
+# locking as every other loader, so N concurrent warm-loop threads asking
+# for the same (brand, channel) can't each open their own simultaneous
+# connection the way the old per-item loaders could before that was fixed.
+# `ids` must be a hashable tuple, not a list, to be usable as a cache key.
+@ttl_cache
+def load_ig_thumbnails_bulk(ids: tuple) -> dict:
     return _bulk_blob_map("posts", "thumbnail", ids)
 
 
-def load_ad_creatives_bulk(ids: list) -> dict:
+@ttl_cache
+def load_ad_creatives_bulk(ids: tuple) -> dict:
     return _bulk_blob_map("ads", "creative", ids)
 
 
-def load_google_ad_creatives_bulk(ids: list) -> dict:
+@ttl_cache
+def load_google_ad_creatives_bulk(ids: tuple) -> dict:
     return _bulk_blob_map("google_ads", "creative", ids)
 
 
