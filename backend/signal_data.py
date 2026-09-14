@@ -554,6 +554,22 @@ def creative_rows(name: str, channel_id: str, data: dict, n: int, loaders: dict,
     else:
         top = sub.head(n)
 
+    # One query for every image this page needs, instead of one query per
+    # image inside the loop below - on a channel with real volume (posts,
+    # ads, google_ads all commonly run into the hundreds), doing this
+    # per-item made "See all" take 20-35+ seconds, sometimes long enough to
+    # be killed by the platform's own request timeout.
+    image_map, video_map = {}, {}
+    if channel_id == "ig_organic":
+        image_map = loaders["ig_thumb_bulk"](top["id"].tolist())
+    elif channel_id == "meta_ads":
+        image_map = loaders["ad_creative_bulk"](top["id"].tolist())
+        if "has_video" in top.columns:
+            video_ids = top.loc[top["has_video"] == True, "id"].tolist()  # noqa: E712
+            video_map = {vid: loaders["ad_video"](vid) for vid in video_ids}
+    elif channel_id == "search":
+        image_map = loaders["gads_creative_bulk"](top["id"].tolist())
+
     rows = []
     for _, r in top.iterrows():
         stage = r.get(funnel_col) if funnel_col else None
@@ -571,7 +587,7 @@ def creative_rows(name: str, channel_id: str, data: dict, n: int, loaders: dict,
 
         image, video_url, embed_html, link, search_term = None, None, None, None, None
         if channel_id == "ig_organic":
-            image = loaders["ig_thumb"](r["id"])
+            image = image_map.get(r["id"])
             link = r.get("post_url")
         elif channel_id == "tiktok":
             image = loaders["tt_thumb"](r["id"])
@@ -581,12 +597,12 @@ def creative_rows(name: str, channel_id: str, data: dict, n: int, loaders: dict,
             image = loaders["yt_thumb"](r["id"])
             link = r.get("video_url")
         elif channel_id == "meta_ads":
-            image = loaders["ad_creative"](r["id"])
+            image = image_map.get(r["id"])
             if r.get("has_video"):
-                video_url = loaders["ad_video"](r["id"])
+                video_url = video_map.get(r["id"])
             link = r.get("ad_url")
         elif channel_id == "search":
-            image = loaders["gads_creative"](r["id"])
+            image = image_map.get(r["id"])
             link = r.get("ad_url")
             search_term = r.get("search_term")
         elif channel_id == "homepage":

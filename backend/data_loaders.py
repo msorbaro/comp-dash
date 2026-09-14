@@ -271,6 +271,36 @@ def load_google_ad_creative(ad_id: int):
     return to_data_uri(row[0]) if row and row[0] else None
 
 
+def _bulk_blob_map(table: str, col: str, ids: list) -> dict:
+    """One query for every id instead of one query per id - "See all" on a
+    channel with real volume (confirmed: Instagram Organic, Meta Ads, and
+    Google Ads all do this) was doing up to ~200 separate DB round trips
+    to load each creative's image individually, which is what made those
+    specific channels take 20-35+ seconds (sometimes long enough to be
+    killed by the platform's own request timeout) while lower-volume
+    channels stayed fast on the exact same per-item code path."""
+    ids = [int(i) for i in ids]
+    if not ids:
+        return {}
+    conn = get_conn()
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT id, {col} FROM {table} WHERE id = ANY(%s)", (ids,))
+        rows = cur.fetchall()
+    return {row_id: to_data_uri(blob) for row_id, blob in rows if blob}
+
+
+def load_ig_thumbnails_bulk(ids: list) -> dict:
+    return _bulk_blob_map("posts", "thumbnail", ids)
+
+
+def load_ad_creatives_bulk(ids: list) -> dict:
+    return _bulk_blob_map("ads", "creative", ids)
+
+
+def load_google_ad_creatives_bulk(ids: list) -> dict:
+    return _bulk_blob_map("google_ads", "creative", ids)
+
+
 @ttl_cache
 def load_competitor_groups() -> pd.DataFrame:
     conn = get_conn()
@@ -303,4 +333,6 @@ LOADERS = {
     "yt_thumb": load_youtube_thumbnail, "ad_creative": load_ad_creative,
     "ad_video": load_ad_video_b64, "gads_creative": load_google_ad_creative,
     "homepage_shot": load_screenshot,
+    "ig_thumb_bulk": load_ig_thumbnails_bulk, "ad_creative_bulk": load_ad_creatives_bulk,
+    "gads_creative_bulk": load_google_ad_creatives_bulk,
 }
