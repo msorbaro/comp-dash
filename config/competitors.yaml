@@ -164,8 +164,9 @@
 - name: Firestone Complete Auto Care
   instagram_handle: firestoneauto
   website_url: https://www.firestonecompleteautocare.com
+  facebook_url: https://www.facebook.com/FirestoneCompleteAuto
   groups: [Automotive Full Service]
-  notes: "Dormant as of research date (last post ~4 months prior). Handle/identity confirmed correct."
+  notes: "Dormant as of research date (last post ~4 months prior). Handle/identity confirmed correct. Facebook page corrected per user (2026-09) - the default guess (facebook.com/firestoneauto, derived from the Instagram handle) was wrong and found zero ads; runs real paid FB/IG ads under facebook.com/FirestoneCompleteAuto."
 
 - name: Monro Auto Service and Tire Centers
   instagram_handle: monroauto
@@ -182,8 +183,9 @@
 - name: Discount Tire
   instagram_handle: discount_tire
   website_url: https://www.discounttire.com
+  facebook_url: https://www.facebook.com/DiscountTire
   groups: [Automotive Full Service]
-  notes: "Note the underscore — a lookalike @discounttire (no underscore) is a small, stale account."
+  notes: "Note the underscore — a lookalike @discounttire (no underscore) is a small, stale account. Facebook page corrected per user (2026-09) - the default guess (facebook.com/discount_tire, derived from the Instagram handle) was wrong and found zero ads; runs real paid FB/IG ads under facebook.com/DiscountTire."
 
 - name: Goodyear
   instagram_handle: goodyear
@@ -194,7 +196,9 @@
 - name: Belle Tire
   instagram_handle: belletire
   website_url: https://www.belletire.com
+  tiktok_handle: null
   groups: [Automotive Full Service]
+  notes: "No official TikTok - per user (2026-09), the tracked TikTok was wrong (a default guess off the Instagram handle, never verified). Left null rather than guessing again."
 
 - name: Les Schwab Tires
   instagram_handle: lesschwabtires
@@ -293,9 +297,11 @@
   instagram_handle: midasofficial
   website_url: https://www.midas.com
   facebook_url: https://www.facebook.com/Midas
+  tiktok_handle: null
+  youtube_url: https://www.youtube.com/@MidasTiresAndAutoRepair
   groups: [Our Brands]
   is_own_brand: true
-  notes: "Medium confidence — many independent regional/franchise Midas accounts exist; @midasofficial looked like the best national candidate. Facebook page confirmed by user as facebook.com/Midas (page ID 115936578484346) - the 'midasofficial' guess used for other platforms was wrong for Facebook specifically."
+  notes: "Medium confidence — many independent regional/franchise Midas accounts exist; @midasofficial looked like the best national candidate. Facebook page confirmed by user as facebook.com/Midas (page ID 115936578484346) - the 'midasofficial' guess used for other platforms was wrong for Facebook specifically. No official TikTok - the previously tracked one (a default guess off the Instagram handle) was confirmed wrong by the user (2026-09) and left null. YouTube corrected per user (2026-09) to @MidasTiresAndAutoRepair - the previous @midasofficial guess was a different, wrong channel."
 
 - name: Brakes Plus
   instagram_handle: brakesplus
@@ -326,10 +332,10 @@
   notes: "Operates mostly through independent per-location Instagram accounts — @tuffytireandauto looked like the closest to a corporate account, low-medium confidence. No corporate TikTok/X/YouTube found (only FB/IG/LinkedIn) - left blank rather than guessing a likely-wrong handle."
 
 - name: Town Fair Tire
-  instagram_handle: town_fair_tire
+  instagram_handle: townfairtire
   website_url: https://www.townfairtire.com
   facebook_url: https://www.facebook.com/townfairtirecenters
   x_handle: TownFairTire
   groups: [Our Brands]
   is_own_brand: true
-  notes: "X verified as '@TownFairTire' (no underscores, unlike the Instagram handle). No official TikTok/YouTube found. Facebook page confirmed by user as facebook.com/townfairtirecenters (page ID 74357872649) - the 'town_fair_tire' guess was wrong for Facebook specifically."
+  notes: "X verified as '@TownFairTire' (no underscores, unlike the Instagram handle). No official TikTok/YouTube found. Facebook page confirmed by user as facebook.com/townfairtirecenters (page ID 74357872649) - the 'town_fair_tire' guess was wrong for Facebook specifically. Instagram corrected per user (2026-09) to 'townfairtire' (no underscore) - the previous 'town_fair_tire' guess was a different, wrong account."

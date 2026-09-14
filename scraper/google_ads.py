@@ -97,6 +97,17 @@ def _screenshot_ad_creative(ad_url: str) -> bytes | None:
 # each entry here is a user-confirmed false positive, not a guess.
 KNOWN_NON_OWN_ADVERTISERS = {
     "Brakes Plus": {"Brakes Plus Automotive"},  # confirmed by the user: not the same company
+    # "Midas" is a common word/name, so the generic substring match in
+    # _is_own_ad below (matching ANY advertiser whose name contains
+    # "midas") produces heavy false positives for this one brand alone -
+    # an IT company, a DJ, a jewelry store, a logo-design shop, a French
+    # auto chain, and a GEICO-selling insurance agency all happen to have
+    # "Midas" in their business name. Confirmed wrong by the user (2026-09);
+    # exclude explicitly rather than loosening the match for everyone else.
+    "Midas": {
+        "MIDAS IT", "Mic midas", "Midas LLC", "Midas Media", "MIDAS STAR 1",
+        "MIDAS FRANCE", "Midas S.r.l.", "Midaspire INC", "Midas Art Ltd", "Tech Midas LLC",
+    },
 }
 
 # The reverse case: an advertiser name that does NOT match the brand name at
@@ -107,6 +118,14 @@ KNOWN_OWN_ADVERTISERS = {
     "Brakes Plus": {"Mavis Tire Supply LLC"},
     "Express Oil": {"Mavis Tire Supply LLC"},
     "Mavis Discount Tire / Mavis Tires and Brakes": {"Mavis Tire Supply LLC"},
+    # Midas's real search ads run through an agency, not "Midas" itself -
+    # confirmed by user (2026-09): 20 genuine Midas ads (city-specific "Midas
+    # auto repair shop", oil-change specials, all with search_term
+    # "midas.com") were sitting under this advertiser name with is_own_ad
+    # FALSE, while 20 entirely unrelated companies that just happen to have
+    # "Midas" in their name (see KNOWN_NON_OWN_ADVERTISERS below) were marked
+    # TRUE via the generic substring match.
+    "Midas": {"Moroch Digital Solutions, LLC", "Moroch"},
 }
 
 
