@@ -167,6 +167,59 @@ KNOWN_NON_OWN_ADVERTISERS = {
         "Rick Staples", "Karyn Staples", "Emily Staples", "Justin Staples",
         "Marcus Staples", "Jordan Staples", "STAPLES MARK, A", "STAPLES INC",
     },
+    # Proactive sweep (2026-09) after the pattern above kept recurring:
+    # checked every tracked competitor with own-ad rows spanning many
+    # distinct advertiser names for the same kind of false positive.
+    # Costco: two Korean cosmetics brands advertising their own product's
+    # availability at Costco (not Costco's own ad), an unrelated regulatory
+    # software company ("QPR CostControl" contains "costco" as a
+    # coincidental substring), and Costco's UK subsidiary (a different,
+    # non-US entity, same treatment as Home Depot Mexico/Canada above).
+    "Costco": {"정샘물뷰티", "QPR CostControl B.V.", "Costco Online UK Limited", "주식회사 더마라인"},
+    # Service Experts: an unrelated pool-repair company also calling itself
+    # "Pool Service Experts". (NOT "Orangutan Service Experts LLC" - that
+    # one looked like a false positive by name alone but is a real
+    # Service Experts-acquired HVAC business in Tempe, AZ, confirmed via
+    # search - verify before excluding, don't just pattern-match on odd names.)
+    "Service Experts": {"Pool Service Experts"},
+    # Walmart: its Chilean subsidiary (different, non-US entity, same
+    # treatment as other international subsidiaries above) and an unrelated
+    # small business/reseller using "WalmartTribe" branding.
+    "Walmart": {"Walmart Chile S.A.", "WalmartTribe LLC"},
+    # Public Storage: an unrelated local storage operator named after its
+    # owner, and a portable storage CONTAINER rental company (PODS-style,
+    # a different business model from Public Storage's fixed facilities).
+    "Public Storage": {"Wm O Brien Public Storage", "PORTABLE PUBLIC STORAGE UNITS LLC"},
+    # Dollar General: an unrelated watch retailer coincidentally sharing
+    # the name.
+    "Dollar General": {"DOLLAR GENERAL LTD"},
+    # Discount Tire: two unrelated local/regional tire shops using
+    # "discount tire" as a generic descriptive phrase rather than the
+    # national brand's own advertiser name.
+    "Discount Tire": {"NYS Discount Tire", "ELSY DISCOUNT TIRE"},
+    # Amazon: a shed manufacturer, a BBQ/food business ("Amazon Blazin"), a
+    # tour operator, a private hospital in Cancun ("AMAZONIA"), a turf/lawn
+    # company, and a rainforest volunteer program - all name collisions on
+    # the word "Amazon" itself (river/rainforest), not the retailer. Keeps
+    # "Amazon" alone since that's genuinely Amazon Flex's own gig-driver
+    # recruiting copy ("earn extra income... deliver Amazon packages").
+    "Amazon": {"Amazon Sheds", "Amazon Blazin", "Amazon tour", "AMAZONIA", "AMAZON TURF", "Amazon Pueblo"},
+    # Target: an education nonprofit ("Target River"), an IT certification
+    # school, a Panamanian clothing/furniture retailer ("Target S.A." and
+    # "Target SRL" are different regional companies, not Target Corp), a
+    # French insurance broker, a 3D-printing company, and Rakuten
+    # Japan-branded content under "Target, Inc" - none are the US retailer.
+    "Target": {
+        "Target River", "Target IT", "TARGET S.A.", "Target SRL", "Target Web",
+        "Target3d ltd", "Target OT", "Target, Inc",
+    },
+    # Wendy's: unrelated small businesses owned by/named after someone
+    # named Wendy (daycare, bridal shop, glass repair, cleaning service,
+    # eyeglass shop) - not the fast-food chain.
+    "Wendy's": {
+        "Wendy's Daycare", "WENDY'S BRIDAL", "Wendy's Glass & Window Repair",
+        "Wendy’s Cleaning Service LLC", "Wendy's Eyeglass Shack Inc.",
+    },
 }
 
 # The reverse case: an advertiser name that does NOT match the brand name at
