@@ -32,6 +32,13 @@ const BRAND_COLORS = [
   '#DB2777', '#0EA5E9', '#CA8A04', '#059669', '#9333EA', '#EA580C',
 ]
 
+// A distinct dash rhythm per line (cycled by position, same as color) -
+// two lines landing on the exact same scores every row is common here
+// (the 1-5 rank is coarse), and a plain solid stroke makes one line
+// completely hide the other. Different dash lengths per line mean the
+// gaps don't line up, so both colors stay visible where they overlap.
+const DASH_PATTERNS = ['none', '6,3', '2,3', '8,2,2,2', '1,3', '10,3,2,3']
+
 function pctForCompany(row, attr) {
   const total = Object.values(row.by_attribute || {}).reduce((a, b) => a + b, 0)
   if (!total) return 0
@@ -116,12 +123,24 @@ export default function ValueMap({ categories }) {
 function ValueMapPlots({ ours, compared, compareCategory }) {
   const oursActive = ours.filter((r) => r.total > 0)
   const comparedActive = compared.filter((r) => r.total > 0)
+  const [hidden, setHidden] = useState(() => new Set())
+  const toggleCompany = (name) => {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
   if (!oursActive.length && !comparedActive.length) {
     return <div style={{ fontSize: 10.5, color: MUTED, fontStyle: 'italic', padding: '30px 0' }}>Not enough classified data for either group yet.</div>
   }
 
   // Pooled across BOTH groups per row, so a "3" means the same thing on
-  // both charts - the two sides stay directly comparable.
+  // both charts - the two sides stay directly comparable. Computed from
+  // every active company regardless of which are hidden, so toggling
+  // visibility never shifts the scale for the ones still shown.
   const scoresByAttr = {}
   for (const attr of VALUE_PROPS) {
     const items = [...oursActive, ...comparedActive].map((r) => ({ key: r.company, value: pctForCompany(r, attr) }))
@@ -130,15 +149,16 @@ function ValueMapPlots({ ours, compared, compareCategory }) {
 
   return (
     <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
-      <ValueMapChart title="Mavis family of brands" rows={oursActive} scoresByAttr={scoresByAttr} showLabels />
-      <ValueMapChart title={compareCategory} rows={comparedActive} scoresByAttr={scoresByAttr} />
+      <ValueMapChart title="Mavis family of brands" rows={oursActive} scoresByAttr={scoresByAttr} hidden={hidden} onToggle={toggleCompany} showLabels />
+      <ValueMapChart title={compareCategory} rows={comparedActive} scoresByAttr={scoresByAttr} hidden={hidden} onToggle={toggleCompany} />
     </div>
   )
 }
 
-function ValueMapChart({ title, rows, scoresByAttr, showLabels = false }) {
+function ValueMapChart({ title, rows, scoresByAttr, hidden, onToggle, showLabels = false }) {
   const x = (score) => LABEL_W + ((score - 1) / 4) * CHART_W
   const y = (i) => PAD_TOP + i * ROW_H
+  const visibleRows = rows.filter((r) => !hidden.has(r.company))
 
   return (
     <div style={{ flex: '1 1 380px', minWidth: 320 }}>
@@ -157,12 +177,14 @@ function ValueMapChart({ title, rows, scoresByAttr, showLabels = false }) {
               </g>
             ))}
 
-            {rows.map((r, ri) => {
+            {visibleRows.map((r) => {
+              const ri = rows.indexOf(r)
               const color = BRAND_COLORS[ri % BRAND_COLORS.length]
+              const dash = DASH_PATTERNS[ri % DASH_PATTERNS.length]
               const pts = VALUE_PROPS.map((attr, i) => `${x(scoresByAttr[attr][r.company])},${y(i)}`).join(' ')
               return (
                 <g key={r.company}>
-                  <polyline points={pts} fill="none" stroke={color} strokeWidth={2} opacity={0.85} />
+                  <polyline points={pts} fill="none" stroke={color} strokeWidth={2} strokeDasharray={dash} opacity={0.9} />
                   {VALUE_PROPS.map((attr, i) => (
                     <circle key={attr} cx={x(scoresByAttr[attr][r.company])} cy={y(i)} r={4} fill={color} stroke="#FFFFFF" strokeWidth={1.2}>
                       <title>{`${r.company} — ${attr}: ${scoresByAttr[attr][r.company]}/5 (${pctForCompany(r, attr).toFixed(1)}% of classified output)`}</title>
@@ -178,13 +200,24 @@ function ValueMapChart({ title, rows, scoresByAttr, showLabels = false }) {
             <text x={LABEL_W} y={HEIGHT - 6} fontSize="9" fill={MUTED} letterSpacing=".05em">LOW</text>
             <text x={W - RIGHT_MARGIN} y={HEIGHT - 6} fontSize="9" fill={MUTED} letterSpacing=".05em" textAnchor="end">HIGH</text>
           </svg>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginTop: 10, fontSize: 9.5, color: MUTED }}>
-            {rows.map((r, ri) => (
-              <span key={r.company} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: BRAND_COLORS[ri % BRAND_COLORS.length], display: 'inline-block', flex: 'none' }} />
-                {r.company}
-              </span>
-            ))}
+          <div style={{ fontSize: 9, color: MUTED, marginTop: 8, marginBottom: 2 }}>Click a company to show/hide it:</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', fontSize: 9.5 }}>
+            {rows.map((r, ri) => {
+              const isHidden = hidden.has(r.company)
+              return (
+                <span
+                  key={r.company}
+                  onClick={() => onToggle(r.company)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: isHidden ? '#B7C0CA' : MUTED, textDecoration: isHidden ? 'line-through' : 'none' }}
+                >
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%', display: 'inline-block', flex: 'none',
+                    background: isHidden ? '#E2E8F0' : BRAND_COLORS[ri % BRAND_COLORS.length],
+                  }} />
+                  {r.company}
+                </span>
+              )
+            })}
           </div>
         </>
       )}
