@@ -344,6 +344,20 @@ def category_channel_sample_texts(brand_names: list, channel_id: str, data: dict
     return texts
 
 
+def _clean_text(v):
+    """A missing text field comes back from pandas as NaN, a float - and
+    `NaN or fallback` doesn't fall through, because NaN is truthy in Python.
+    That let a missing headline/caption/etc. reach `text[:110]` as a raw
+    float instead of a string, crashing creative_rows for every brand whose
+    "top N" happened to include a row with that field blank (confirmed via
+    a live traceback: "TypeError: 'float' object is not subscriptable" at
+    the "why" line below - it looked like it only affected certain brands,
+    but really just depended on whether their top rows had a blank field)."""
+    if isinstance(v, str):
+        return v
+    return None
+
+
 def _text_col_for(channel_id: str) -> str:
     return {
         "ig_organic": "caption", "tiktok": "caption", "youtube": "title",
@@ -574,9 +588,11 @@ def creative_rows(name: str, channel_id: str, data: dict, n: int, loaders: dict,
     for _, r in top.iterrows():
         stage = r.get(funnel_col) if funnel_col else None
         if channel_id == "search":
-            text = r.get("headline") or (f"{r.get('advertiser_name')} — found via \"{r.get('search_term')}\"" if r.get("advertiser_name") else "")
+            headline = _clean_text(r.get("headline"))
+            advertiser = _clean_text(r.get("advertiser_name"))
+            text = headline or (f"{advertiser} — found via \"{r.get('search_term')}\"" if advertiser else "")
         else:
-            text = r.get(_text_col_for(channel_id)) or ""
+            text = _clean_text(r.get(_text_col_for(channel_id))) or ""
         date_val = r.get(date_col) if date_col else None
         date_label = pd.to_datetime(date_val).strftime("%b %d, %Y") if pd.notna(date_val) else ""
         eng = None
@@ -613,7 +629,7 @@ def creative_rows(name: str, channel_id: str, data: dict, n: int, loaders: dict,
         rows.append({
             "image": image, "video_url": video_url, "embed_html": embed_html, "link": link,
             "stage": stage, "type": r.get(category_col) if category_col else None,
-            "why": text[:110] if text else "", "engagement": eng, "date": date_label,
+            "why": text[:110] if isinstance(text, str) and text else "", "engagement": eng, "date": date_label,
             "shape": CHANNEL_BY_ID[channel_id]["shape"], "search_term": search_term,
             "channel_id": channel_id,
             "quote_text": r.get("text") if channel_id == "x" else None,
