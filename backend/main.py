@@ -604,15 +604,37 @@ def _warm_cache_loop():
         time.sleep(480)  # 8 minutes: under Render free tier's 15-min idle sleep
 
 
+_warm_status: dict = {}
+_warm_status_lock = threading.Lock()
+
+
 def _safe_refresh(key, compute_fn):
     """Same as _refresh_page, but swallows its own exception so one bad
     brand/channel in a parallel warm batch doesn't take the rest down with
     it (ThreadPoolExecutor.map re-raises on the first failed result when
-    you iterate it)."""
+    you iterate it). Also records the outcome in _warm_status so a failure
+    is visible via /api/debug/warm-status without needing Render's own log
+    dashboard - the print() alone was invisible from here."""
+    t0 = time.time()
     try:
         _refresh_page(key, compute_fn)
+        with _warm_status_lock:
+            _warm_status[key] = {"ok": True, "at": time.time(), "took": time.time() - t0}
     except Exception as e:
-        print(f"[warm-cache] {key} failed: {e}", flush=True)
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[warm-cache] {key} failed: {e}\n{tb}", flush=True)
+        with _warm_status_lock:
+            _warm_status[key] = {
+                "ok": False, "at": time.time(), "took": time.time() - t0,
+                "error": f"{type(e).__name__}: {e}", "traceback": tb,
+            }
+
+
+@app.get("/api/debug/warm-status")
+def get_warm_status():
+    with _warm_status_lock:
+        return dict(_warm_status)
 
 
 threading.Thread(target=_warm_cache_loop, daemon=True).start()
