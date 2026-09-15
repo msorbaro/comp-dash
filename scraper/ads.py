@@ -21,6 +21,7 @@ from PIL import Image
 from categorize.classify import classify_funnel_stage, classify_message_attribute
 from categorize.vision import classify_image_funnel_stage, classify_image_message_attribute, classify_image_theme
 from db.connection import get_conn
+from scraper.apify_client import dataset_id
 
 ACTOR_ID = "apify/facebook-ads-scraper"
 STORE_WIDTH = 600
@@ -36,7 +37,7 @@ def _run_actor(page_urls: list, results_limit: int) -> list:
         "resultsLimit": results_limit,
         "activeStatus": "active",
     })
-    return list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    return list(client.dataset(dataset_id(run)).iterate_items())
 
 
 def _first_non_template(*candidates):

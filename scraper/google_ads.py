@@ -40,6 +40,7 @@ from apify_client import ApifyClient
 from categorize.classify import classify_funnel_stage, classify_message_attribute
 from categorize.vision import classify_image_funnel_stage, classify_image_message_attribute, extract_ad_headline
 from db.connection import get_conn
+from scraper.apify_client import dataset_id
 from scraper.media import fetch_thumbnail, to_jpeg
 
 ACTOR_ID = "solidcode/ads-transparency-scraper"
@@ -57,7 +58,7 @@ def _run_search(query: str, max_results: int) -> list:
         "maxResults": max_results,
         "region": "US",
     })
-    return list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    return list(client.dataset(dataset_id(run)).iterate_items())
 
 
 def _screenshot_ad_creative(ad_url: str) -> bytes | None:

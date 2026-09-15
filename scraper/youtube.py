@@ -13,6 +13,7 @@ from apify_client import ApifyClient
 
 from categorize.classify import classify_caption, classify_funnel_stage, classify_message_attribute
 from db.connection import get_conn
+from scraper.apify_client import dataset_id
 from scraper.media import fetch_thumbnail
 
 ACTOR_ID = "streamers/youtube-scraper"
@@ -35,7 +36,7 @@ def _run_actor(channel_urls: list, max_results: int, max_shorts: int) -> list:
         "maxResultsShorts": max_shorts,
         "maxResultStreams": 0,
     })
-    return list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    return list(client.dataset(dataset_id(run)).iterate_items())
 
 
 def capture_youtube(run_type: str = "weekly", max_results: int = 15, max_shorts: int = 15,

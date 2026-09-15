@@ -13,6 +13,23 @@ from apify_client import ApifyClient
 ACTOR_ID = "apify/instagram-scraper"
 
 
+def dataset_id(run) -> str:
+    """The shape of an actor-run result has changed between apify-client
+    versions - a plain subscriptable dict (confirmed: what's installed
+    locally, 1.12.2) vs. a typed `Run` object needing attribute access.
+    requirements.txt pins `apify-client>=1.7.1` with no upper bound, so a
+    fresh CI install can silently pick up a newer client than what's been
+    tested locally - confirmed live: the scheduled weekly scrape failed
+    across Instagram, Meta ads, and TikTok with
+    "'Run' object is not subscriptable", while every local run this same
+    week (identical code, older installed client) worked fine. Handle both
+    shapes here instead of hardcoding one."""
+    try:
+        return run["defaultDatasetId"]
+    except TypeError:
+        return getattr(run, "default_dataset_id", None) or getattr(run, "defaultDatasetId")
+
+
 def fetch_posts(profile_urls: list[str], results_limit: int) -> list[dict]:
     """Returns raw Apify dataset items for the given profile URLs.
 
@@ -29,8 +46,7 @@ def fetch_posts(profile_urls: list[str], results_limit: int) -> list[dict]:
         "addParentData": False,
     }
     run = client.actor(ACTOR_ID).call(run_input=run_input)
-    dataset_id = run["defaultDatasetId"]
-    return list(client.dataset(dataset_id).iterate_items())
+    return list(client.dataset(dataset_id(run)).iterate_items())
 
 
 def normalize_post(item: dict) -> dict | None:

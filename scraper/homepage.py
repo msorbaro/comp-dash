@@ -23,6 +23,7 @@ from PIL import Image
 
 from categorize.vision import classify_image_funnel_stage, classify_image_message_attribute, classify_image_theme
 from db.connection import get_conn
+from scraper.apify_client import dataset_id
 
 ACTOR_ID = "apify/screenshot-url"
 STORE_WIDTH = 800
@@ -42,7 +43,7 @@ def _capture_screenshots(website_urls: list) -> dict:
         "waitUntil": "load",
         "viewportWidth": 1280,
     })
-    items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    items = list(client.dataset(dataset_id(run)).iterate_items())
 
     results = {}
     for item in items:
@@ -193,7 +194,7 @@ def recover_homepage_run(apify_run_id: str, run_type: str = "backfill") -> dict:
     run_client = client.run(apify_run_id)
     run_client.wait_for_finish()
     run = run_client.get()
-    items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    items = list(client.dataset(dataset_id(run)).iterate_items())
 
     raw_screenshots = {}
     for item in items:

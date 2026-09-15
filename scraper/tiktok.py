@@ -12,6 +12,7 @@ from apify_client import ApifyClient
 
 from categorize.classify import classify_caption, classify_funnel_stage, classify_message_attribute
 from db.connection import get_conn
+from scraper.apify_client import dataset_id
 from scraper.media import fetch_thumbnail
 
 ACTOR_ID = "clockworks/tiktok-scraper"
@@ -30,7 +31,7 @@ def _run_actor(usernames: list, results_per_page: int) -> list:
         "shouldDownloadSubtitles": False,
         "shouldDownloadSlideshowImages": False,
     })
-    return list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    return list(client.dataset(dataset_id(run)).iterate_items())
 
 
 def capture_tiktok(run_type: str = "weekly", results_per_page: int = 20, only_own_brand: bool = False) -> dict:

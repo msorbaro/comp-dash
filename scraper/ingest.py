@@ -156,7 +156,7 @@ def recover_run(apify_run_id: str, run_type: str = "backfill") -> dict:
     triggering a new (paid) scrape. Useful if the DB insert step failed after
     a successful scrape.
     """
-    from scraper.apify_client import ApifyClient  # local import, optional dep path
+    from scraper.apify_client import ApifyClient, dataset_id  # local import, optional dep path
 
     conn = get_conn()
 
@@ -165,7 +165,7 @@ def recover_run(apify_run_id: str, run_type: str = "backfill") -> dict:
 
         client = ApifyClient(os.environ["APIFY_TOKEN"])
         run = client.run(apify_run_id).get()
-        raw_items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+        raw_items = list(client.dataset(dataset_id(run)).iterate_items())
 
         stats = _insert_posts(conn, raw_items, run_type, by_handle)
         status = _log_run(conn, run_type, len(competitors), stats, [])

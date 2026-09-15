@@ -11,6 +11,7 @@ from apify_client import ApifyClient
 
 from categorize.classify import classify_caption, classify_funnel_stage, classify_message_attribute
 from db.connection import get_conn
+from scraper.apify_client import dataset_id
 
 ACTOR_ID = "apidojo/tweet-scraper"
 
@@ -24,7 +25,7 @@ def _run_actor(handles: list, max_items_per_handle: int) -> list:
         "maxItems": max_items_per_handle * len(handles),
         "sort": "Latest",
     })
-    return list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    return list(client.dataset(dataset_id(run)).iterate_items())
 
 
 def capture_x(run_type: str = "weekly", max_items_per_handle: int = 20, only_own_brand: bool = False) -> dict:
