@@ -8,12 +8,22 @@ same actor call - confirmed via a live test call (2026-09-15) that
 compass/crawler-google-places already returns totalScore/reviewsCount
 directly on every place, so voice/ratings.py (Phase 2) writes
 voice.rating_snapshots from this same fetch instead of a second paid call.
+
+Runs (brand, state) combos CONCURRENTLY via a thread pool - a live run
+showed a single combo (Belle Tire / Florida - a big state, common search
+term) can take 400+ seconds of actor time; 105 combos run sequentially
+could take most of a day. Each worker opens its OWN short-lived DB
+connection for just its write block (never one connection held open across
+a multi-minute Apify call) - confirmed live that holding one connection
+across a long call gets it killed server-side as idle, losing every result
+fetched (at real, if modest, Apify cost) before it could be saved.
 """
 from __future__ import annotations
 
 import math
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from apify_client import ApifyClient
 
@@ -22,6 +32,7 @@ from scraper.apify_client import dataset_id
 from voice.us_states import STATE_NAME_BY_CODE
 
 ACTOR_ID = "compass/crawler-google-places"
+MAX_WORKERS = 5
 
 # Safety ceiling, not a typical binding constraint - even the most
 # location-dense brand realistically has well under this many stores in a
@@ -79,10 +90,10 @@ def _haversine_m(lat1, lng1, lat2, lng2) -> float:
 
 
 def _dedupe(places: list) -> list:
-    """First on placeId (the caller upserts on that as the DB UNIQUE
-    constraint, so exact placeId dupes across pages/searches just overwrite
-    harmlessly) - this covers the SECOND hazard: the same physical store
-    surfacing under two different placeIds, via (normalized name, <=100m)."""
+    """First on placeId (upserted on as the DB UNIQUE constraint, so exact
+    placeId dupes across pages/searches just overwrite harmlessly) - this
+    covers the SECOND hazard: the same physical store surfacing under two
+    different placeIds, via (normalized name, <=100m)."""
     by_place_id = {p["placeId"]: p for p in places}  # last write wins, fields don't differ
     deduped = []
     for p in by_place_id.values():
@@ -113,17 +124,77 @@ def _fetch_places(client: ApifyClient, search_terms: list, state_name: str) -> l
     return list(client.dataset(dataset_id(run)).iterate_items())
 
 
+def _process_one(client: ApifyClient, brand_id: int, brand_name: str, aliases: list, state_code: str) -> dict:
+    """Runs entirely for one (brand, state) combo: fetch -> filter -> dedupe
+    -> write, opening its own DB connection only for the write block (never
+    held open across the Apify call itself, which is the part that can run
+    several minutes)."""
+    state_name = STATE_NAME_BY_CODE[state_code]
+    raw_places = _fetch_places(client, list(aliases), state_name)
+
+    kept, category_drops, non_us_dropped = [], 0, 0
+    for p in raw_places:
+        if (p.get("countryCode") or "").upper() != "US":
+            non_us_dropped += 1
+            continue
+        if not _is_automotive_category(p.get("categoryName")):
+            category_drops += 1
+            continue
+        kept.append(p)
+
+    kept = _dedupe(kept)
+
+    n, unmatched, rating_rows = 0, [], []
+    with get_conn() as conn:
+        with conn:
+            with conn.cursor() as cur:
+                for p in kept:
+                    matched_alias = _match_alias(p["title"], aliases)
+                    if not matched_alias:
+                        unmatched.append((brand_name, state_code, p["title"], p.get("categoryName")))
+                        continue
+                    loc = p.get("location") or {}
+                    cur.execute(
+                        """INSERT INTO voice.locations
+                               (brand_id, source, source_place_id, name, street, city, state, zip,
+                                country_code, lat, lng, category, is_active, last_seen_at)
+                           VALUES (%(brand_id)s, 'google_maps', %(place_id)s, %(name)s, %(street)s,
+                                   %(city)s, %(state)s, %(zip)s, %(country_code)s, %(lat)s, %(lng)s,
+                                   %(category)s, TRUE, now())
+                           ON CONFLICT (source, source_place_id) DO UPDATE
+                               SET name = EXCLUDED.name, street = EXCLUDED.street, city = EXCLUDED.city,
+                                   state = EXCLUDED.state, zip = EXCLUDED.zip, lat = EXCLUDED.lat,
+                                   lng = EXCLUDED.lng, category = EXCLUDED.category,
+                                   is_active = TRUE, last_seen_at = now()
+                           RETURNING location_id""",
+                        {
+                            "brand_id": brand_id, "place_id": p["placeId"], "name": p.get("title"),
+                            "street": p.get("street"), "city": p.get("city"), "state": state_code,
+                            "zip": p.get("postalCode"), "country_code": p.get("countryCode"),
+                            "lat": loc.get("lat"), "lng": loc.get("lng"), "category": p.get("categoryName"),
+                        },
+                    )
+                    location_id = cur.fetchone()[0]
+                    n += 1
+                    rating_rows.append((location_id, p.get("totalScore"), p.get("reviewsCount")))
+
+    return {
+        "brand_name": brand_name, "state_code": state_code, "n": n,
+        "category_drops": category_drops, "non_us_dropped": non_us_dropped,
+        "unmatched": unmatched, "rating_rows": rating_rows,
+    }
+
+
 def run(pilot_state_codes: list) -> dict:
     """Returns a report dict: per-(brand,state) location counts, per-brand
     category-drop counts, the full unmatched-name list (exactly what the
     user asked to review before approving further phases), and
     `rating_rows` - (location_id, avg_rating, review_count) for every kept
     location, handed to voice/ratings.py so Phase 2 needs no extra fetch."""
-    conn = get_conn()
-    with conn.cursor() as cur:
-        cur.execute("SELECT brand_id, name, aliases FROM voice.brands ORDER BY name")
-        brands = cur.fetchall()
-    conn.commit()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT brand_id, name, aliases FROM voice.brands ORDER BY name")
+            brands = cur.fetchall()
 
     client = ApifyClient(os.environ["APIFY_TOKEN"])
 
@@ -133,56 +204,34 @@ def run(pilot_state_codes: list) -> dict:
     non_us_dropped = 0
     rating_rows = []
 
-    for brand_id, brand_name, aliases in brands:
-        for state_code in pilot_state_codes:
-            state_name = STATE_NAME_BY_CODE[state_code]
-            raw_places = _fetch_places(client, list(aliases), state_name)
+    tasks = [
+        (brand_id, brand_name, aliases, state_code)
+        for brand_id, brand_name, aliases in brands
+        for state_code in pilot_state_codes
+    ]
+    total = len(tasks)
+    done = 0
 
-            kept = []
-            for p in raw_places:
-                if (p.get("countryCode") or "").upper() != "US":
-                    non_us_dropped += 1
-                    continue
-                if not _is_automotive_category(p.get("categoryName")):
-                    category_drops[brand_name] += 1
-                    continue
-                kept.append(p)
-
-            kept = _dedupe(kept)
-
-            n = 0
-            with conn:
-                with conn.cursor() as cur:
-                    for p in kept:
-                        matched_alias = _match_alias(p["title"], aliases)
-                        if not matched_alias:
-                            unmatched.append((brand_name, state_code, p["title"], p.get("categoryName")))
-                            continue
-                        loc = p.get("location") or {}
-                        cur.execute(
-                            """INSERT INTO voice.locations
-                                   (brand_id, source, source_place_id, name, street, city, state, zip,
-                                    country_code, lat, lng, category, is_active, last_seen_at)
-                               VALUES (%(brand_id)s, 'google_maps', %(place_id)s, %(name)s, %(street)s,
-                                       %(city)s, %(state)s, %(zip)s, %(country_code)s, %(lat)s, %(lng)s,
-                                       %(category)s, TRUE, now())
-                               ON CONFLICT (source, source_place_id) DO UPDATE
-                                   SET name = EXCLUDED.name, street = EXCLUDED.street, city = EXCLUDED.city,
-                                       state = EXCLUDED.state, zip = EXCLUDED.zip, lat = EXCLUDED.lat,
-                                       lng = EXCLUDED.lng, category = EXCLUDED.category,
-                                       is_active = TRUE, last_seen_at = now()
-                               RETURNING location_id""",
-                            {
-                                "brand_id": brand_id, "place_id": p["placeId"], "name": p.get("title"),
-                                "street": p.get("street"), "city": p.get("city"), "state": state_code,
-                                "zip": p.get("postalCode"), "country_code": p.get("countryCode"),
-                                "lat": loc.get("lat"), "lng": loc.get("lng"), "category": p.get("categoryName"),
-                            },
-                        )
-                        location_id = cur.fetchone()[0]
-                        n += 1
-                        rating_rows.append((location_id, p.get("totalScore"), p.get("reviewsCount")))
-            counts[(brand_name, state_code)] = n
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        futures = {
+            pool.submit(_process_one, client, brand_id, brand_name, aliases, state_code): (brand_name, state_code)
+            for brand_id, brand_name, aliases, state_code in tasks
+        }
+        for future in as_completed(futures):
+            brand_name, state_code = futures[future]
+            done += 1
+            try:
+                result = future.result()
+            except Exception as exc:  # noqa: BLE001 - one bad combo shouldn't abort the whole pilot
+                print(f"[{done}/{total}] {brand_name} / {state_code} FAILED: {exc}", flush=True)
+                counts[(brand_name, state_code)] = None
+                continue
+            counts[(brand_name, state_code)] = result["n"]
+            category_drops[result["brand_name"]] += result["category_drops"]
+            non_us_dropped += result["non_us_dropped"]
+            unmatched.extend(result["unmatched"])
+            rating_rows.extend(result["rating_rows"])
+            print(f"[{done}/{total}] {brand_name} / {state_code}: {result['n']} locations", flush=True)
 
     return {
         "counts": counts, "category_drops": category_drops, "unmatched": unmatched,

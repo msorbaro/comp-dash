@@ -29,11 +29,22 @@ def run():
     lines = [f"# Customer Voice - Phase 1 & 2 run - {today}", ""]
 
     lines.append("## Location counts by brand x state")
+    failed_combos = []
     brand_names = sorted({b for b, _s in report["counts"]})
     for brand in brand_names:
-        row_counts = {s: report["counts"].get((brand, s), 0) for s in pilot_states}
-        total = sum(row_counts.values())
-        lines.append(f"- **{brand}** (total {total}): " + ", ".join(f"{s}={n}" for s, n in row_counts.items()))
+        row_counts = {s: report["counts"].get((brand, s)) for s in pilot_states}
+        for s, n in row_counts.items():
+            if n is None:
+                failed_combos.append((brand, s))
+        total = sum(n for n in row_counts.values() if n is not None)
+        rendered = ", ".join(f"{s}={'FAILED' if n is None else n}" for s, n in row_counts.items())
+        lines.append(f"- **{brand}** (total {total}): {rendered}")
+
+    if failed_combos:
+        lines.append("")
+        lines.append(f"## Failed combos ({len(failed_combos)}) - re-run these specifically, not the whole pilot")
+        for brand, state in failed_combos:
+            lines.append(f"- {brand} / {state}")
 
     lines.append("")
     lines.append("## Category-filter drops by brand (non-automotive places excluded)")
