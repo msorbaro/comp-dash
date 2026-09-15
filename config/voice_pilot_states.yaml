@@ -1,0 +1,4 @@
+# Customer Voice pilot scope - USPS state codes only, US locations only.
+# Phases 1-2 (location + ratings census) run against exactly this list.
+# Change this to expand/contract the pilot; do not hardcode states in code.
+pilot_states: [TX, FL, OH, NC, AZ]

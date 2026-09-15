@@ -1,0 +1,124 @@
+# Customer Voice brand universe - every location gets tagged to exactly one
+# of these. `competitor_name` is the exact `competitors.name` value to join
+# against (scripts/init_voice_db.py looks it up, doesn't fuzzy-match) -
+# omit it for the two brands that don't exist in that table yet (Meineke,
+# Tires Plus); the init script adds them there too rather than leaving
+# voice.brands.competitor_id null, per user confirmation (2026-09-15).
+#
+# `aliases` are candidate Google Maps place-name matches, used to tag a
+# scraped place to a brand - NOT a guess mechanism. Any place name that
+# doesn't confidently match one of these gets reported as unmatched for
+# manual review rather than assigned.
+
+# ============================================================
+# MAVIS FAMILY (our brands)
+# ============================================================
+
+- name: Mavis Discount Tire / Mavis Tires and Brakes
+  family: mavis
+  competitor_name: Mavis Discount Tire / Mavis Tires and Brakes
+  aliases: [Mavis Discount Tire, Mavis Tires & Brakes, Mavis Tires and Brakes, Mavis Tire Supply]
+
+- name: Tire Kingdom
+  family: mavis
+  competitor_name: Tire Kingdom
+  aliases: [Tire Kingdom]
+
+- name: National Tire and Battery
+  family: mavis
+  competitor_name: National Tire and Battery
+  aliases: [National Tire and Battery, National Tire & Battery, NTB]
+
+- name: Pep Boys
+  family: mavis
+  competitor_name: Pep Boys
+  aliases: [Pep Boys, "Pep Boys Auto Service", "Pep Boys - Auto Parts & Service"]
+
+- name: Midas
+  family: mavis
+  competitor_name: Midas
+  aliases: [Midas]
+
+- name: Brakes Plus
+  family: mavis
+  competitor_name: Brakes Plus
+  aliases: [Brakes Plus]
+
+- name: Express Oil Change & Tire Engineers
+  family: mavis
+  competitor_name: Express Oil
+  aliases: [Express Oil, Express Oil Change, "Express Oil Change & Tire Engineers"]
+
+- name: Tuffy
+  family: mavis
+  competitor_name: Tuffy
+  aliases: [Tuffy, "Tuffy Tire & Auto Service", Tuffy Auto Service]
+
+- name: Town Fair Tire
+  family: mavis
+  competitor_name: Town Fair Tire
+  aliases: [Town Fair Tire]
+
+# ============================================================
+# COMPETITORS
+# ============================================================
+
+- name: Meineke
+  family: competitor
+  competitor_name: Meineke
+  aliases: [Meineke, "Meineke Car Care Center"]
+
+- name: Discount Tire / America's Tire
+  family: competitor
+  competitor_name: Discount Tire
+  aliases: [Discount Tire, "America's Tire"]
+
+- name: Big O Tires
+  family: competitor
+  competitor_name: Big O Tires
+  aliases: [Big O Tires]
+
+- name: Goodyear Auto Service
+  family: competitor
+  competitor_name: Goodyear
+  aliases: [Goodyear Auto Service, Goodyear]
+
+- name: Les Schwab
+  family: competitor
+  competitor_name: Les Schwab Tires
+  aliases: [Les Schwab, "Les Schwab Tire Center", Les Schwab Tires]
+
+- name: Costco Tire Center
+  family: competitor
+  competitor_name: Costco
+  aliases: ["Costco Tire Center", "Costco Business Center Tire"]
+
+- name: Sam's Club Tire & Battery
+  family: competitor
+  competitor_name: Sam's Club
+  aliases: ["Sam's Club Tire & Battery", "Sam's Club Tire Center"]
+
+- name: Belle Tire
+  family: competitor
+  competitor_name: Belle Tire
+  aliases: [Belle Tire]
+
+- name: Firestone Complete Auto Care
+  family: competitor
+  competitor_name: Firestone Complete Auto Care
+  aliases: [Firestone Complete Auto Care, Firestone]
+
+- name: Tires Plus
+  family: competitor
+  competitor_name: Tires Plus
+  aliases: [Tires Plus]
+
+- name: Jiffy Lube
+  family: competitor
+  competitor_name: Jiffy Lube
+  aliases: [Jiffy Lube]
+
+- name: Walmart Auto Care Center
+  family: competitor
+  competitor_name: Walmart
+  aliases: ["Walmart Auto Care Center", "Walmart Auto Care Centers"]

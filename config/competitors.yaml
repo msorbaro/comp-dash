@@ -180,6 +180,18 @@
   groups: [Automotive Full Service]
   notes: "Low follower count for a national chain; recent activity not confirmed — worth a spot check."
 
+- name: Meineke
+  instagram_handle: meineke
+  website_url: https://www.meineke.com
+  groups: [Automotive Full Service]
+  notes: "Added 2026-09-15 for the Customer Voice project's brand join, not independently verified for messaging tracking - scripts/init_voice_db.py sets is_active=false on this row right after seeding so it's excluded from the existing weekly Instagram/ads/etc. scrapes. Flip is_active back on manually if messaging tracking is ever wanted for this brand too."
+
+- name: Tires Plus
+  instagram_handle: tiresplus
+  website_url: https://www.tiresplus.com
+  groups: [Automotive Full Service]
+  notes: "Added 2026-09-15 for the Customer Voice project's brand join, not independently verified for messaging tracking - scripts/init_voice_db.py sets is_active=false on this row right after seeding so it's excluded from the existing weekly Instagram/ads/etc. scrapes. Flip is_active back on manually if messaging tracking is ever wanted for this brand too."
+
 - name: Discount Tire
   instagram_handle: discount_tire
   website_url: https://www.discounttire.com
