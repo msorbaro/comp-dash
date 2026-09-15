@@ -176,7 +176,29 @@ def _process_one(client: ApifyClient, brand_id: int, brand_name: str, aliases: l
                     )
                     location_id = cur.fetchone()[0]
                     n += 1
-                    rating_rows.append((location_id, p.get("totalScore"), p.get("reviewsCount")))
+                    avg_rating, review_count = p.get("totalScore"), p.get("reviewsCount")
+                    rating_rows.append((location_id, avg_rating, review_count))
+                    # Written in the SAME transaction as the location upsert,
+                    # not batched for later - a live run crashed/got killed
+                    # before an end-of-run batch write could happen, losing
+                    # every rating already fetched (at real Apify cost) for
+                    # locations that HAD been saved. Append-only: never
+                    # overwrite an existing snapshot.
+                    cur.execute(
+                        """INSERT INTO voice.rating_snapshots (location_id, source, avg_rating, review_count)
+                           VALUES (%s, 'google_maps', %s, %s)""",
+                        (location_id, avg_rating, review_count),
+                    )
+                # Marks this combo done regardless of n (a real, confirmed
+                # zero-locations result must not be re-fetched forever) -
+                # only reached if every write above succeeded, so a crash
+                # partway through this combo leaves it correctly unmarked
+                # and eligible for a clean retry.
+                cur.execute(
+                    """INSERT INTO voice.location_census_runs (brand_id, state)
+                       VALUES (%s, %s) ON CONFLICT (brand_id, state) DO UPDATE SET completed_at = now()""",
+                    (brand_id, state_code),
+                )
 
     return {
         "brand_name": brand_name, "state_code": state_code, "n": n,
@@ -190,11 +212,20 @@ def run(pilot_state_codes: list) -> dict:
     category-drop counts, the full unmatched-name list (exactly what the
     user asked to review before approving further phases), and
     `rating_rows` - (location_id, avg_rating, review_count) for every kept
-    location, handed to voice/ratings.py so Phase 2 needs no extra fetch."""
+    location (already written to voice.rating_snapshots inline by
+    _process_one - returned here only so the caller can report totals, not
+    to be written again).
+
+    Skips any (brand, state) combo already recorded in
+    voice.location_census_runs - confirmed necessary live: a pilot run got
+    killed by local low memory partway through, and without this a re-run
+    would redo (and re-pay for) every combo that had already succeeded."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT brand_id, name, aliases FROM voice.brands ORDER BY name")
             brands = cur.fetchall()
+            cur.execute("SELECT brand_id, state FROM voice.location_census_runs")
+            already_done = set(cur.fetchall())
 
     client = ApifyClient(os.environ["APIFY_TOKEN"])
 
@@ -204,11 +235,15 @@ def run(pilot_state_codes: list) -> dict:
     non_us_dropped = 0
     rating_rows = []
 
-    tasks = [
+    all_combos = [
         (brand_id, brand_name, aliases, state_code)
         for brand_id, brand_name, aliases in brands
         for state_code in pilot_state_codes
     ]
+    tasks = [t for t in all_combos if (t[0], t[3]) not in already_done]
+    skipped = len(all_combos) - len(tasks)
+    if skipped:
+        print(f"Skipping {skipped} already-completed combo(s) from a prior run.", flush=True)
     total = len(tasks)
     done = 0
 

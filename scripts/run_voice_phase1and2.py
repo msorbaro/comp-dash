@@ -11,7 +11,7 @@ import pathlib
 
 import yaml
 
-from voice import places, ratings
+from voice import places
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -23,7 +23,13 @@ def run():
 
     print(f"Running Phase 1 (locations) + Phase 2 (ratings) for states: {pilot_states}", flush=True)
     report = places.run(pilot_states)
-    rating_stats = ratings.write_snapshots(report["rating_rows"])
+    # Ratings are written inline per-combo by voice.places._process_one, in
+    # the same transaction as the location upsert - report["rating_rows"]
+    # is just the tally for this summary, not something left to write here.
+    rating_stats = {
+        "written": len(report["rating_rows"]),
+        "null_rating": sum(1 for _loc_id, avg, _cnt in report["rating_rows"] if avg is None),
+    }
 
     today = dt.date.today().isoformat()
     lines = [f"# Customer Voice - Phase 1 & 2 run - {today}", ""]

@@ -53,3 +53,17 @@ CREATE TABLE IF NOT EXISTS voice.rating_snapshots (
     captured_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_voice_rating_snapshots_location ON voice.rating_snapshots(location_id, captured_at);
+
+-- Tracks which (brand, state) location-census combos have already completed
+-- a full fetch+write - not the same as "produced results": a combo that
+-- legitimately found zero locations (e.g. a brand with no stores in that
+-- state) still gets marked done, so a re-run skips it instead of re-paying
+-- for the same Apify call. Confirmed necessary live: a pilot run got killed
+-- (low local memory, unrelated to this code) partway through 105 combos -
+-- without this, a re-run would have redone the ones that already succeeded.
+CREATE TABLE IF NOT EXISTS voice.location_census_runs (
+    brand_id      INTEGER NOT NULL REFERENCES voice.brands(brand_id) ON DELETE CASCADE,
+    state         TEXT NOT NULL,
+    completed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (brand_id, state)
+);
