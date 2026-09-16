@@ -5,6 +5,7 @@ import Brand from './screens/Brand'
 import Channel from './screens/Channel'
 import Category from './screens/Category'
 import Compare from './screens/Compare'
+import Voice from './screens/Voice'
 import { Shimmer } from './components/Widgets'
 import { api } from './api'
 import { CANVAS, MUTED } from './styles'
@@ -89,6 +90,7 @@ export default function App() {
             onBrandAChange={setCompareA} onBrandBChange={setCompareB}
           />
         )}
+        {screen === 'voice' && <Voice />}
         <div style={{ marginTop: 28, paddingTop: 16, borderTop: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', fontSize: 10, color: MUTED, flexWrap: 'wrap', gap: 6 }}>
           <div>Brand Signal · competitive marketing intelligence</div>
           <div>All figures are computed from tracked data; channels with no captured content show "—" rather than an estimate.</div>

@@ -35,4 +35,7 @@ export const api = {
   messagingStudy: () => get('/landscape/messaging-study'),
   compare: (a, b) => get(`/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
   refresh: () => fetch(BASE + '/refresh', { method: 'POST' }),
+  voiceStates: () => get('/voice/states'),
+  voiceTowns: (state) => get(`/voice/towns?state=${encodeURIComponent(state)}`),
+  voiceStores: (state, city) => get(`/voice/stores?state=${encodeURIComponent(state)}${city ? `&city=${encodeURIComponent(city)}` : ''}`),
 }

@@ -76,6 +76,17 @@ export function heatTextColor(pct) {
   return (pct || 0) / HEAT_MAX > 0.55 ? '#FFFFFF' : INK_TEXT
 }
 
+// Diverging scale for the Customer Voice state map - centered at zero
+// (white), GREEN for positive (Mavis outperforming), ROSE for negative,
+// clamped at +/- maxAbs (per spec: clamp at +/- 0.5 stars, since most real
+// deltas land inside +/- 0.25 and an unclamped scale would wash out).
+export function divergingColor(value, maxAbs = 0.5) {
+  if (value === null || value === undefined) return SLATE_200
+  const clamped = Math.max(-maxAbs, Math.min(maxAbs, value))
+  const t = Math.abs(clamped) / maxAbs
+  return clamped >= 0 ? _lerpHex('#FFFFFF', GREEN, t) : _lerpHex('#FFFFFF', ROSE, t)
+}
+
 // Mirrors backend/signal_data.py's CHANNELS list (id/name/paid) - kept as a
 // small duplicated constant here the same way STAGES already is, since the
 // channel-breakdown API responses are keyed by these raw ids, not names.

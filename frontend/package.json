@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "@vnedyalk0v/react19-simple-maps": "^2.0.10",
+    "us-atlas": "^3.0.1"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",

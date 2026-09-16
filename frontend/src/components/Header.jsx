@@ -5,6 +5,7 @@ const TABS = [
   { id: 'brand', label: 'Brand deep dive' },
   { id: 'category', label: 'Category rollup' },
   { id: 'compare', label: 'Head to head' },
+  { id: 'voice', label: 'Customer Voice' },
 ]
 
 export default function Header({ screen, onNav }) {
