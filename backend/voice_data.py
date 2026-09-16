@@ -150,17 +150,46 @@ def county_summary(state: str) -> list:
     ]
 
 
-def county_locations(state: str, county_fips: str) -> list:
-    """Every rated location (Mavis AND competitor) in one county, for the
-    map's store-marker view - unlike store_summary() (Mavis only, joined
-    through location_benchmark), this pulls straight from
-    location_adjusted_ratings so competitor pins show up too. Mavis rows
-    also carry delta/low_comparability (left-joined from location_benchmark,
-    NULL for competitors - a competitor has no "delta vs its neighbors")."""
+def county_town_summary(state: str, county_fips: str) -> list:
+    """Towns within one county - the map's county -> town drill, one level
+    deeper than county_summary(). Scoped to a single county (not state-wide
+    like town_summary()) since the same town name can exist in different
+    counties."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT lar.location_id, lar.brand_name, lar.family, lar.location_name,
+                SELECT city, n_mavis_locations, total_mavis_reviews, n_low_comparability_locations,
+                       avg_mavis_adj_rating, town_delta, avg_comp_benchmark_rating, suppressed
+                FROM voice.county_town_delta
+                WHERE state = %(state)s AND county_fips = %(county_fips)s
+                ORDER BY town_delta DESC NULLS LAST
+            """, {"state": state, "county_fips": county_fips})
+            rows = cur.fetchall()
+    return [
+        {
+            "city": city, "n_mavis_locations": n_locations, "total_mavis_reviews": total_reviews,
+            "n_low_comparability_locations": n_low_comp,
+            "mavis_rating": float(mavis_rating) if mavis_rating is not None else None,
+            "delta": float(delta) if delta is not None else None,
+            "comp_rating": float(comp_rating) if comp_rating is not None else None,
+            "suppressed": suppressed,
+        }
+        for city, n_locations, total_reviews, n_low_comp, mavis_rating, delta, comp_rating, suppressed in rows
+    ]
+
+
+def county_locations(state: str, county_fips: str, city: str = None) -> list:
+    """Every rated location (Mavis AND competitor) in one county, optionally
+    narrowed to one town within it - for the map's store-marker view. Unlike
+    store_summary() (Mavis only, joined through location_benchmark), this
+    pulls straight from location_adjusted_ratings so competitor pins show up
+    too. Mavis rows also carry delta/low_comparability (left-joined from
+    location_benchmark, NULL for competitors - a competitor has no "delta
+    vs its neighbors")."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT lar.location_id, lar.brand_name, lar.family, lar.location_name, lar.city,
                        lar.lat, lar.lng, lar.raw_rating, lar.adj_rating, lar.n,
                        c.website_url,
                        lb.delta, lb.low_comparability, lb.comp_benchmark_rating, lb.n_competitors_in_ring
@@ -169,12 +198,13 @@ def county_locations(state: str, county_fips: str) -> list:
                 LEFT JOIN competitors c ON c.id = vb.competitor_id
                 LEFT JOIN voice.location_benchmark lb ON lb.location_id = lar.location_id
                 WHERE lar.state = %(state)s AND lar.county_fips = %(county_fips)s
+                  AND (%(city)s::text IS NULL OR lar.city = %(city)s::text)
                 ORDER BY lar.family, lar.brand_name, lar.location_name
-            """, {"state": state, "county_fips": county_fips})
+            """, {"state": state, "county_fips": county_fips, "city": city})
             rows = cur.fetchall()
     return [
         {
-            "location_id": location_id, "brand": brand, "family": family, "name": name,
+            "location_id": location_id, "brand": brand, "family": family, "name": name, "city": city,
             "lat": float(lat) if lat is not None else None, "lng": float(lng) if lng is not None else None,
             "raw_rating": float(raw_rating) if raw_rating is not None else None,
             "adj_rating": float(adj_rating) if adj_rating is not None else None,
@@ -185,7 +215,7 @@ def county_locations(state: str, county_fips: str) -> list:
             "comp_benchmark_rating": float(comp_rating) if comp_rating is not None else None,
             "n_competitors_in_ring": n_ring,
         }
-        for location_id, brand, family, name, lat, lng, raw_rating, adj_rating, n,
+        for location_id, brand, family, name, city, lat, lng, raw_rating, adj_rating, n,
             website_url, delta, low_comp, comp_rating, n_ring in rows
     ]
 

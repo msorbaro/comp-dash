@@ -14,6 +14,7 @@
 -- that produced it."
 
 DROP MATERIALIZED VIEW IF EXISTS voice.brand_state_delta CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS voice.county_town_delta CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.county_delta CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.town_delta CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.state_delta CASCADE;
@@ -146,6 +147,27 @@ GROUP BY state, county_fips, county_name;
 
 CREATE UNIQUE INDEX ON voice.county_delta (county_fips);
 CREATE INDEX ON voice.county_delta (state);
+
+-- Towns within one county - the map's county-click-to-towns drill-down
+-- (one level deeper than county_delta, scoped to a single county instead
+-- of state-wide, since the same town name can appear in different
+-- counties). Same town-level suppression bar.
+CREATE MATERIALIZED VIEW voice.county_town_delta AS
+SELECT
+    state, county_fips, county_name, city,
+    count(*) AS n_mavis_locations,
+    sum(mavis_n) AS total_mavis_reviews,
+    sum(CASE WHEN low_comparability THEN 1 ELSE 0 END) AS n_low_comparability_locations,
+    (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0)) AS avg_mavis_adj_rating,
+    (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS town_delta,
+    (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0))
+        - (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
+    (count(*) < {min_locations_for_town} OR coalesce(sum(mavis_n), 0) < {min_reviews_for_town}) AS suppressed
+FROM voice.location_benchmark
+WHERE delta IS NOT NULL AND county_fips IS NOT NULL
+GROUP BY state, county_fips, county_name, city;
+
+CREATE UNIQUE INDEX ON voice.county_town_delta (county_fips, city);
 
 -- Per-brand state rollup - same shape as state_delta, but grouped by Mavis
 -- banner too, so "how does Midas do in Texas vs local competitors" is its

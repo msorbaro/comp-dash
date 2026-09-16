@@ -5,7 +5,7 @@ import { ComposableMap, Geographies, Geography, Marker } from '@vnedyalk0v/react
 import usStatesTopology from 'us-atlas/states-10m.json'
 import usCountiesTopology from 'us-atlas/counties-10m.json'
 import { api } from '../api'
-import { divergingColor, SLATE_200, SLATE_400, MUTED, INK_TEXT, TEAL_700, GREEN, ROSE, MONO, fmtNum } from '../styles'
+import { divergingColor, SLATE_200, SLATE_400, SLATE_600, MUTED, INK_TEXT, TEAL_700, DEEP_TEAL, GREEN, ROSE, MONO, fmtNum } from '../styles'
 
 // Decoded once at module load (not per-render) - topojson-client turns the
 // arc-encoded topology into plain GeoJSON with real [lng,lat] coordinates,
@@ -24,6 +24,22 @@ const HEIGHT = 520
 function fitProjection(features, padding = 24) {
   const fc = { type: 'FeatureCollection', features }
   return geoMercator().fitExtent([[padding, padding], [WIDTH - padding, HEIGHT - padding]], fc)
+}
+
+// Geography needs a concrete style object for every interaction state it can
+// land in (default/hover/pressed/focused) - it reads style[state] directly
+// with no fallback, so a missing key (e.g. no `focused` variant) means no
+// style at all gets applied and the shape renders with SVG's bare default
+// fill: black. Clicking a shape focuses it (it's keyboard-focusable), so
+// "focused" isn't a rare state to skip - always provide all four.
+function regionStyle(fill, clickable) {
+  const base = { fill, stroke: '#FFFFFF', outline: 'none' }
+  return {
+    default: { ...base, strokeWidth: 0.75, cursor: clickable ? 'pointer' : 'default' },
+    hover: { ...base, strokeWidth: 1.25, opacity: clickable ? 0.82 : 1, cursor: clickable ? 'pointer' : 'default' },
+    pressed: { ...base, strokeWidth: 1.25 },
+    focused: { ...base, strokeWidth: 0.75, cursor: clickable ? 'pointer' : 'default' },
+  }
 }
 
 function comparabilityNote(r) {
@@ -134,14 +150,63 @@ function Crumbs({ items }) {
   )
 }
 
+function fmtTownStatus(t) {
+  if (t.suppressed) return 'insufficient data'
+  const sign = t.delta >= 0 ? '+' : ''
+  return `${sign}${t.delta.toFixed(2)} vs. competitors${comparabilityNote(t)}`
+}
+
+// Plain clickable list, not a map layer - there's no standardized US
+// town/place boundary topology the way there is for states and counties,
+// so "drill into a town" is a picker rather than another polygon map.
+function TownList({ towns, onSelectTown, onViewAll }) {
+  return (
+    <div style={{ maxWidth: 560, margin: '0 auto' }}>
+      <div
+        onClick={onViewAll}
+        style={{
+          display: 'flex', justifyContent: 'space-between', padding: '10px 14px', marginBottom: 8, borderRadius: 8,
+          background: '#F6F8FA', border: `1px solid ${SLATE_200}`, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: DEEP_TEAL,
+        }}
+      >
+        <span>View every location in the county</span>
+        <span>→</span>
+      </div>
+      {towns.map((t) => (
+        <div
+          key={t.city}
+          onClick={() => onSelectTown(t.city)}
+          style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px',
+            borderBottom: `1px solid ${SLATE_200}`, cursor: 'pointer', fontSize: 12.5,
+          }}
+        >
+          <span style={{ color: INK_TEXT }}>{t.city}</span>
+          <span style={{ display: 'flex', gap: 14, alignItems: 'baseline' }}>
+            <span style={{ fontSize: 10.5, color: SLATE_600 }}>{t.n_mavis_locations} Mavis loc.</span>
+            <span style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 600, color: t.suppressed ? MUTED : (t.delta >= 0 ? GREEN : ROSE) }}>
+              {fmtTownStatus(t)}
+            </span>
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function VoiceMap({ states }) {
   const [selectedState, setSelectedState] = useState(null) // { code, name }
   const [selectedCounty, setSelectedCounty] = useState(null) // { fips, name }
+  const [townChoice, setTownChoice] = useState(null) // null = still choosing, { city: string|null }
   const [counties, setCounties] = useState(null)
+  const [towns, setTowns] = useState(null)
   const [locations, setLocations] = useState(null)
   const [error, setError] = useState(null)
 
-  const mode = selectedCounty ? 'stores' : selectedState ? 'county' : 'us'
+  const mode = !selectedState ? 'us' : !selectedCounty ? 'county' : townChoice === null ? 'town' : 'stores'
+
+  const chooseState = (s) => { setSelectedState(s); setSelectedCounty(null); setTownChoice(null) }
+  const chooseCounty = (c) => { setSelectedCounty(c); setTownChoice(null) }
 
   useEffect(() => {
     if (!selectedState) return
@@ -151,9 +216,16 @@ export default function VoiceMap({ states }) {
 
   useEffect(() => {
     if (!selectedState || !selectedCounty) return
-    setLocations(null); setError(null)
-    api.voiceCountyLocations(selectedState.code, selectedCounty.fips).then(setLocations).catch((e) => setError(e.message))
+    setTowns(null); setError(null)
+    api.voiceCountyTowns(selectedState.code, selectedCounty.fips).then(setTowns).catch((e) => setError(e.message))
   }, [selectedState, selectedCounty])
+
+  useEffect(() => {
+    if (!selectedState || !selectedCounty || townChoice === null) return
+    setLocations(null); setError(null)
+    api.voiceCountyLocations(selectedState.code, selectedCounty.fips, townChoice.city || undefined)
+      .then(setLocations).catch((e) => setError(e.message))
+  }, [selectedState, selectedCounty, townChoice])
 
   const byStateName = useMemo(() => Object.fromEntries(states.map((s) => [s.state_name, s])), [states])
   const byCountyFips = useMemo(() => Object.fromEntries((counties || []).map((c) => [c.county_fips, c])), [counties])
@@ -192,9 +264,10 @@ export default function VoiceMap({ states }) {
     [selectedCountyFeature]
   )
 
-  const crumbs = [{ label: 'All states', onClick: mode !== 'us' ? () => { setSelectedState(null); setSelectedCounty(null) } : null }]
-  if (selectedState) crumbs.push({ label: selectedState.name, onClick: mode === 'stores' ? () => setSelectedCounty(null) : null })
-  if (selectedCounty) crumbs.push({ label: `${selectedCounty.name} County`, onClick: null })
+  const crumbs = [{ label: 'All states', onClick: mode !== 'us' ? () => chooseState(null) : null }]
+  if (selectedState) crumbs.push({ label: selectedState.name, onClick: mode !== 'county' ? () => chooseCounty(null) : null })
+  if (selectedCounty) crumbs.push({ label: `${selectedCounty.name} County`, onClick: mode === 'stores' ? () => setTownChoice(null) : null })
+  if (townChoice?.city) crumbs.push({ label: townChoice.city, onClick: null })
 
   return (
     <div>
@@ -215,12 +288,8 @@ export default function VoiceMap({ states }) {
                     key={geo.id}
                     geography={geo}
                     title={areaTooltip(geo.properties?.name, s)}
-                    onClick={() => { if (visible) setSelectedState({ code: s.state, name: s.state_name }) }}
-                    style={{
-                      default: { fill, stroke: '#FFFFFF', strokeWidth: 0.75, outline: 'none', cursor: visible ? 'pointer' : 'default' },
-                      hover: { fill, stroke: '#FFFFFF', strokeWidth: 1.25, outline: 'none', opacity: visible ? 0.82 : 1 },
-                      pressed: { fill, stroke: '#FFFFFF', strokeWidth: 1.25, outline: 'none' },
-                    }}
+                    onClick={() => { if (visible) chooseState({ code: s.state, name: s.state_name }) }}
+                    style={regionStyle(fill, visible)}
                   />
                 )
               })
@@ -242,12 +311,8 @@ export default function VoiceMap({ states }) {
                     key={geo.id}
                     geography={geo}
                     title={areaTooltip(geo.properties?.name ? `${geo.properties.name} County` : geo.id, c)}
-                    onClick={() => { if (c) setSelectedCounty({ fips: geo.id, name: geo.properties?.name || c.county_name }) }}
-                    style={{
-                      default: { fill, stroke: '#FFFFFF', strokeWidth: 0.75, outline: 'none', cursor: c ? 'pointer' : 'default' },
-                      hover: { fill, stroke: '#FFFFFF', strokeWidth: 1.25, outline: 'none', opacity: c ? 0.82 : 1 },
-                      pressed: { fill, stroke: '#FFFFFF', strokeWidth: 1.25, outline: 'none' },
-                    }}
+                    onClick={() => { if (c) chooseCounty({ fips: geo.id, name: geo.properties?.name || c.county_name }) }}
+                    style={regionStyle(fill, !!c)}
                   />
                 )
               })
@@ -256,16 +321,36 @@ export default function VoiceMap({ states }) {
         </ComposableMap>
       )}
 
+      {mode === 'town' && (
+        <>
+          <ComposableMap projection={storesProjection || 'geoMercator'} width={WIDTH} height={HEIGHT} style={{ width: '100%', height: 'auto' }}>
+            <Geographies geography={selectedCountyFeatureCollection}>
+              {({ geographies }) =>
+                geographies.map((geo) => (
+                  <Geography key={geo.id} geography={geo} style={regionStyle('#F6F8FA', false)} />
+                ))
+              }
+            </Geographies>
+          </ComposableMap>
+          {!error && towns === null ? (
+            <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading towns…</div>
+          ) : towns && towns.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>
+              No towns broken out for this county -{' '}
+              <span onClick={() => setTownChoice({ city: null })} style={{ textDecoration: 'underline', cursor: 'pointer', color: TEAL_700 }}>view all locations</span>.
+            </div>
+          ) : towns ? (
+            <TownList towns={towns} onSelectTown={(city) => setTownChoice({ city })} onViewAll={() => setTownChoice({ city: null })} />
+          ) : null}
+        </>
+      )}
+
       {mode === 'stores' && (
         <ComposableMap projection={storesProjection || 'geoMercator'} width={WIDTH} height={HEIGHT} style={{ width: '100%', height: 'auto' }}>
           <Geographies geography={selectedCountyFeatureCollection}>
             {({ geographies }) =>
               geographies.map((geo) => (
-                <Geography
-                  key={geo.id}
-                  geography={geo}
-                  style={{ default: { fill: '#F6F8FA', stroke: SLATE_400, strokeWidth: 1, outline: 'none' } }}
-                />
+                <Geography key={geo.id} geography={geo} style={regionStyle('#F6F8FA', false)} />
               ))
             }
           </Geographies>
@@ -279,7 +364,7 @@ export default function VoiceMap({ states }) {
         <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading locations…</div>
       )}
       {mode === 'stores' && locations !== null && (
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 6, fontSize: 10.5, color: MUTED }}>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 6, fontSize: 10.5, color: MUTED, flexWrap: 'wrap' }}>
           <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: `2.5px solid ${GREEN}`, marginRight: 5, verticalAlign: 'middle' }} /> Mavis, beating local competitors</span>
           <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: `2.5px solid ${ROSE}`, marginRight: 5, verticalAlign: 'middle' }} /> Mavis, trailing local competitors</span>
           <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: `2.5px solid ${SLATE_400}`, marginRight: 5, verticalAlign: 'middle' }} /> Competitor</span>
@@ -289,7 +374,7 @@ export default function VoiceMap({ states }) {
         <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading counties…</div>
       )}
 
-      {mode !== 'stores' && <Legend grayLabel="insufficient data" />}
+      {(mode === 'us' || mode === 'county') && <Legend grayLabel="insufficient data" />}
     </div>
   )
 }

@@ -759,8 +759,13 @@ def get_voice_counties(state: str):
 
 
 @app.get("/api/voice/county-locations")
-def get_voice_county_locations(state: str, county_fips: str):
-    return _clean(voice_data.county_locations(state, county_fips))
+def get_voice_county_locations(state: str, county_fips: str, city: str = None):
+    return _clean(voice_data.county_locations(state, county_fips, city))
+
+
+@app.get("/api/voice/county-towns")
+def get_voice_county_towns(state: str, county_fips: str):
+    return _clean(voice_data.county_town_summary(state, county_fips))
 
 
 def _warm_cache_loop():
