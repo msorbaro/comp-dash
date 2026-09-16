@@ -6,7 +6,10 @@ import usStatesTopology from 'us-atlas/states-10m.json'
 import usCountiesTopology from 'us-atlas/counties-10m.json'
 import { api } from '../api'
 import VoiceStoreMap from './VoiceStoreMap'
-import { divergingColor, SLATE_200, SLATE_400, SLATE_600, MUTED, INK_TEXT, TEAL_700, DEEP_TEAL, GREEN, ROSE, MONO, fmtNum } from '../styles'
+import {
+  divergingColor, tierColor, TIER_DARK_GREEN, TIER_LIGHT_GREEN, TIER_YELLOW,
+  SLATE_200, SLATE_400, SLATE_600, MUTED, INK_TEXT, TEAL_700, DEEP_TEAL, GREEN, ROSE, MONO, fmtNum,
+} from '../styles'
 
 // Decoded once at module load (not per-render) - topojson-client turns the
 // arc-encoded topology into plain GeoJSON with real [lng,lat] coordinates,
@@ -90,6 +93,50 @@ function Legend({ grayLabel }) {
   )
 }
 
+// Main-brand mode's legend - town level is a plain 3-way verdict; county
+// and state add the dark/light green split for the %-of-green-areas rollup.
+function TierLegend({ level }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 18, marginTop: 8, fontSize: 10.5, color: MUTED }}>
+      {level === 'town' ? (
+        <>
+          <Swatch color={GREEN} label="beats every other location here" />
+          <Swatch color={TIER_YELLOW} label="beats the local average" />
+          <Swatch color={ROSE} label="below the local average" />
+        </>
+      ) : (
+        <>
+          <Swatch color={TIER_DARK_GREEN} label="90%+ of towns green" />
+          <Swatch color={TIER_LIGHT_GREEN} label="80-90% green" />
+          <Swatch color={TIER_YELLOW} label="50-80% green" />
+          <Swatch color={ROSE} label="under 50% green" />
+        </>
+      )}
+      <Swatch color={SLATE_200} label="no location for this brand" />
+    </div>
+  )
+}
+
+function mainBrandTownTooltip(label, t) {
+  if (!t) return `${label}: no location for this brand`
+  const verdict = { green: 'beats every other location here', yellow: 'beats the local average, not the best', red: 'below the local average' }[t.tier]
+  const lines = [`${label}: ${verdict}`, `${t.n_brand_locations} location(s), avg rating ${t.brand_rating.toFixed(2)}`]
+  lines.push(
+    t.n_other_locations > 0
+      ? `vs. ${t.n_other_locations} other location(s) - avg ${t.avg_other_rating.toFixed(2)}, best ${t.max_other_rating.toFixed(2)}`
+      : 'No other tracked brand has a location here'
+  )
+  return lines.join('\n')
+}
+
+function mainBrandAreaTooltip(label, a, unitWord) {
+  if (!a) return `${label}: no locations for this brand`
+  const tierLabel = { dark_green: 'Dark green', light_green: 'Light green', yellow: 'Yellow', red: 'Red' }[a.tier]
+  const pct = Math.round(a.pct_green * 100)
+  const n = unitWord === 'counties' ? a.n_counties : a.n_towns
+  return `${label}: ${tierLabel} - ${pct}% of ${unitWord} green (${a.n_green}/${n})`
+}
+
 function Crumbs({ items }) {
   return (
     <div style={{ fontSize: 11, color: MUTED, marginBottom: 10 }}>
@@ -115,32 +162,44 @@ function fmtTownStatus(t) {
 
 // Fallback for the minority of towns with no matching Census place polygon
 // (see scripts/backfill_town_boundaries.py) - still selectable, just not
-// drawn as a shape on the map above.
-function UnmappedTownList({ towns, onSelectTown }) {
+// drawn as a shape on the map above. In main-brand mode, status comes from
+// byMbTown (that brand's tier) instead of the town's own Mavis-portfolio
+// delta - showing stale portfolio numbers while exploring a different
+// brand would be misleading.
+function UnmappedTownList({ towns, onSelectTown, byMbTown }) {
   if (!towns.length) return null
   return (
     <div style={{ maxWidth: 560, margin: '10px auto 0' }}>
       <div style={{ fontSize: 9.5, letterSpacing: '.1em', color: MUTED, fontWeight: 600, marginBottom: 4 }}>
         NO MAPPED BOUNDARY FOR THESE TOWNS
       </div>
-      {towns.map((t) => (
-        <div
-          key={t.city}
-          onClick={() => onSelectTown(t.city)}
-          style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px',
-            borderBottom: `1px solid ${SLATE_200}`, cursor: 'pointer', fontSize: 12,
-          }}
-        >
-          <span style={{ color: INK_TEXT }}>{t.city}</span>
-          <span style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
-            <span style={{ fontSize: 10, color: SLATE_600 }}>{t.n_mavis_locations} Mavis loc.</span>
-            <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: t.suppressed ? MUTED : (t.delta >= 0 ? GREEN : ROSE) }}>
-              {fmtTownStatus(t)}
-            </span>
-          </span>
-        </div>
-      ))}
+      {towns.map((t) => {
+        const mb = byMbTown ? byMbTown[t.city] : null
+        return (
+          <div
+            key={t.city}
+            onClick={() => onSelectTown(t.city)}
+            style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px',
+              borderBottom: `1px solid ${SLATE_200}`, cursor: 'pointer', fontSize: 12,
+            }}
+          >
+            <span style={{ color: INK_TEXT }}>{t.city}</span>
+            {byMbTown ? (
+              <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: mb ? tierColor(mb.tier) : MUTED }}>
+                {mb ? mb.tier.replace('_', ' ') : 'no location'}
+              </span>
+            ) : (
+              <span style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
+                <span style={{ fontSize: 10, color: SLATE_600 }}>{t.n_mavis_locations} Mavis loc.</span>
+                <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: t.suppressed ? MUTED : (t.delta >= 0 ? GREEN : ROSE) }}>
+                  {fmtTownStatus(t)}
+                </span>
+              </span>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -153,6 +212,17 @@ export default function VoiceMap({ states }) {
   const [towns, setTowns] = useState(null)
   const [locations, setLocations] = useState(null)
   const [error, setError] = useState(null)
+
+  // "Main brand" mode - an independent analysis lens layered on top of the
+  // same drill-down (state/county/town), colored by a tiered rollup instead
+  // of the default Mavis-portfolio delta. Kept in separate state slots from
+  // counties/towns above since the two modes' row shapes aren't compatible
+  // (tier + pct_green vs. delta + suppressed).
+  const [brandOptions, setBrandOptions] = useState([])
+  const [mainBrandId, setMainBrandId] = useState('')
+  const [mbStates, setMbStates] = useState(null)
+  const [mbCounties, setMbCounties] = useState(null)
+  const [mbTowns, setMbTowns] = useState(null)
 
   const mode = !selectedState ? 'us' : !selectedCounty ? 'county' : townChoice === null ? 'town' : 'stores'
 
@@ -178,8 +248,33 @@ export default function VoiceMap({ states }) {
       .then(setLocations).catch((e) => setError(e.message))
   }, [selectedState, selectedCounty, townChoice])
 
+  useEffect(() => {
+    api.voiceBrandOptions().then(setBrandOptions).catch((e) => setError(e.message))
+  }, [])
+
+  useEffect(() => {
+    if (!mainBrandId) { setMbStates(null); return }
+    setMbStates(null); setError(null)
+    api.voiceMainBrandStates(mainBrandId).then(setMbStates).catch((e) => setError(e.message))
+  }, [mainBrandId])
+
+  useEffect(() => {
+    if (!mainBrandId || !selectedState) return
+    setMbCounties(null); setError(null)
+    api.voiceMainBrandCounties(mainBrandId, selectedState.code).then(setMbCounties).catch((e) => setError(e.message))
+  }, [mainBrandId, selectedState])
+
+  useEffect(() => {
+    if (!mainBrandId || !selectedState || !selectedCounty) return
+    setMbTowns(null); setError(null)
+    api.voiceMainBrandTowns(mainBrandId, selectedState.code, selectedCounty.fips).then(setMbTowns).catch((e) => setError(e.message))
+  }, [mainBrandId, selectedState, selectedCounty])
+
   const byStateName = useMemo(() => Object.fromEntries(states.map((s) => [s.state_name, s])), [states])
   const byCountyFips = useMemo(() => Object.fromEntries((counties || []).map((c) => [c.county_fips, c])), [counties])
+  const byMbState = useMemo(() => Object.fromEntries((mbStates || []).map((s) => [s.state, s])), [mbStates])
+  const byMbCounty = useMemo(() => Object.fromEntries((mbCounties || []).map((c) => [c.county_fips, c])), [mbCounties])
+  const byMbTown = useMemo(() => Object.fromEntries((mbTowns || []).map((t) => [t.city, t])), [mbTowns])
 
   const stateFips = selectedState ? STATE_FIPS_BY_NAME[selectedState.name] : null
   const countyFeaturesForState = useMemo(
@@ -251,11 +346,39 @@ export default function VoiceMap({ states }) {
   if (selectedCounty) crumbs.push({ label: `${selectedCounty.name} County`, onClick: mode === 'stores' ? () => setTownChoice(null) : null })
   if (townChoice?.city) crumbs.push({ label: townChoice.city, onClick: null })
 
+  const mavisOptions = brandOptions.filter((b) => b.family === 'mavis')
+  const competitorOptions = brandOptions.filter((b) => b.family === 'competitor')
+
   return (
     <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, paddingBottom: 12, borderBottom: `1px solid ${SLATE_200}` }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: MUTED }}>MAIN BRAND</span>
+        <select
+          value={mainBrandId}
+          onChange={(e) => setMainBrandId(e.target.value ? Number(e.target.value) : '')}
+          style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: `1px solid ${SLATE_200}`, fontFamily: 'Poppins, sans-serif', color: INK_TEXT, minWidth: 220 }}
+        >
+          <option value="">None - Mavis portfolio vs. competitors</option>
+          <optgroup label="Mavis brands">
+            {mavisOptions.map((b) => <option key={b.brand_id} value={b.brand_id}>{b.name}</option>)}
+          </optgroup>
+          <optgroup label="Competitors">
+            {competitorOptions.map((b) => <option key={b.brand_id} value={b.brand_id}>{b.name}</option>)}
+          </optgroup>
+        </select>
+        {mainBrandId && (
+          <span style={{ fontSize: 11, color: MUTED, maxWidth: 420, lineHeight: 1.4 }}>
+            Colors now show how this one brand's own locations compare to every other tracked brand, town by town - not the portfolio-vs-competitors view above.
+          </span>
+        )}
+      </div>
+
       {mode !== 'us' && <Crumbs items={crumbs} />}
 
       {error && <div style={{ padding: 12, color: MUTED, fontSize: 12 }}>Couldn't load this view ({error}).</div>}
+      {mode === 'us' && mainBrandId && mbStates === null && !error && (
+        <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading…</div>
+      )}
 
       {mode === 'us' && (
         <ComposableMap projection="geoAlbersUsa" width={WIDTH} height={HEIGHT} style={{ width: '100%', height: 'auto' }}>
@@ -263,6 +386,21 @@ export default function VoiceMap({ states }) {
             {({ geographies }) =>
               geographies.map((geo) => {
                 const s = byStateName[geo.properties?.name]
+                if (mainBrandId) {
+                  const mb = s ? byMbState[s.state] : null
+                  const visible = !!mb
+                  const fill = visible ? tierColor(mb.tier) : SLATE_200
+                  return (
+                    <Geography
+                      key={geo.id}
+                      geography={geo}
+                      onClick={() => { if (visible) chooseState({ code: s.state, name: s.state_name }) }}
+                      style={regionStyle(fill, visible)}
+                    >
+                      <title>{mainBrandAreaTooltip(geo.properties?.name, mb, 'counties')}</title>
+                    </Geography>
+                  )
+                }
                 const visible = !!(s && s.has_data && !s.suppressed)
                 const fill = visible ? divergingColor(s.delta) : SLATE_200
                 return (
@@ -287,6 +425,22 @@ export default function VoiceMap({ states }) {
             {({ geographies }) =>
               geographies.map((geo) => {
                 const c = byCountyFips[geo.id]
+                const label = geo.properties?.name ? `${geo.properties.name} County` : geo.id
+                if (mainBrandId) {
+                  const mb = byMbCounty[geo.id]
+                  const visible = !!mb
+                  const fill = visible ? tierColor(mb.tier) : SLATE_200
+                  return (
+                    <Geography
+                      key={geo.id}
+                      geography={geo}
+                      onClick={() => { if (visible) chooseCounty({ fips: geo.id, name: geo.properties?.name || mb.county_name }) }}
+                      style={regionStyle(fill, visible)}
+                    >
+                      <title>{mainBrandAreaTooltip(label, mb, 'towns')}</title>
+                    </Geography>
+                  )
+                }
                 const visible = !!(c && !c.suppressed)
                 const fill = visible ? divergingColor(c.delta) : SLATE_200
                 return (
@@ -296,7 +450,7 @@ export default function VoiceMap({ states }) {
                     onClick={() => { if (c) chooseCounty({ fips: geo.id, name: geo.properties?.name || c.county_name }) }}
                     style={regionStyle(fill, !!c)}
                   >
-                    <title>{areaTooltip(geo.properties?.name ? `${geo.properties.name} County` : geo.id, c)}</title>
+                    <title>{areaTooltip(label, c)}</title>
                   </Geography>
                 )
               })
@@ -330,17 +484,33 @@ export default function VoiceMap({ states }) {
               <Geographies geography={townFeatureCollection}>
                 {({ geographies }) =>
                   geographies.map((geo) => {
-                    const t = byTownCity[geo.properties?.name]
+                    const name = geo.properties?.name
+                    if (mainBrandId) {
+                      const mb = byMbTown[name]
+                      const visible = !!mb
+                      const fill = visible ? tierColor(mb.tier) : SLATE_200
+                      return (
+                        <Geography
+                          key={geo.id}
+                          geography={geo}
+                          onClick={() => { if (visible) setTownChoice({ city: name }) }}
+                          style={regionStyle(fill, visible)}
+                        >
+                          <title>{mainBrandTownTooltip(name, mb)}</title>
+                        </Geography>
+                      )
+                    }
+                    const t = byTownCity[name]
                     const visible = !!(t && !t.suppressed)
                     const fill = visible ? divergingColor(t.delta) : SLATE_200
                     return (
                       <Geography
                         key={geo.id}
                         geography={geo}
-                        onClick={() => setTownChoice({ city: geo.properties?.name })}
+                        onClick={() => setTownChoice({ city: name })}
                         style={regionStyle(fill, true)}
                       >
-                        <title>{areaTooltip(geo.properties?.name, t)}</title>
+                        <title>{areaTooltip(name, t)}</title>
                       </Geography>
                     )
                   })
@@ -348,11 +518,11 @@ export default function VoiceMap({ states }) {
               </Geographies>
             </ZoomableGroup>
           </ComposableMap>
-          {!error && towns === null && (
+          {!error && (mainBrandId ? mbTowns === null : towns === null) && (
             <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading towns…</div>
           )}
-          {towns && <UnmappedTownList towns={unmappedTowns} onSelectTown={(city) => setTownChoice({ city })} />}
-          {towns && <Legend grayLabel="insufficient data / not in analysis" />}
+          {towns && <UnmappedTownList towns={unmappedTowns} onSelectTown={(city) => setTownChoice({ city })} byMbTown={mainBrandId ? byMbTown : null} />}
+          {towns && (mainBrandId ? <TierLegend level="town" /> : <Legend grayLabel="insufficient data / not in analysis" />)}
           {towns && (
             <div style={{ textAlign: 'center', fontSize: 10, color: MUTED, marginTop: 4 }}>Scroll to zoom, drag to pan</div>
           )}
@@ -369,11 +539,13 @@ export default function VoiceMap({ states }) {
           areaKey={`${selectedCounty?.fips}-${townChoice?.city || 'all'}`}
         />
       )}
-      {mode === 'county' && !error && counties === null && (
+      {mode === 'county' && !error && (mainBrandId ? mbCounties === null : counties === null) && (
         <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading counties…</div>
       )}
 
-      {(mode === 'us' || mode === 'county') && <Legend grayLabel="insufficient data" />}
+      {(mode === 'us' || mode === 'county') && (
+        mainBrandId ? <TierLegend level={mode === 'us' ? 'state' : 'county'} /> : <Legend grayLabel="insufficient data" />
+      )}
     </div>
   )
 }

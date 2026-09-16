@@ -87,6 +87,25 @@ export function divergingColor(value, maxAbs = 0.5) {
   return clamped >= 0 ? _lerpHex('#FFFFFF', GREEN, t) : _lerpHex('#FFFFFF', ROSE, t)
 }
 
+// The map's "main brand" mode - town tier is green/yellow/red (does this
+// brand's location beat everyone/the average/neither in its town); county
+// and state tiers add a dark/light green split for the %-of-green-areas
+// rollup. TIER_YELLOW is a real yellow, not AMBER (already used elsewhere
+// for "paid channel") - a different scale shouldn't borrow that meaning.
+export const TIER_DARK_GREEN = '#14532D'
+export const TIER_LIGHT_GREEN = '#86EFAC'
+export const TIER_YELLOW = '#EAB308'
+export function tierColor(tier) {
+  switch (tier) {
+    case 'dark_green': return TIER_DARK_GREEN
+    case 'light_green': return TIER_LIGHT_GREEN
+    case 'green': return GREEN
+    case 'yellow': return TIER_YELLOW
+    case 'red': return ROSE
+    default: return SLATE_200
+  }
+}
+
 // Mirrors backend/signal_data.py's CHANNELS list (id/name/paid) - kept as a
 // small duplicated constant here the same way STAGES already is, since the
 // channel-breakdown API responses are keyed by these raw ids, not names.

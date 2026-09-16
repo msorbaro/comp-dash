@@ -45,4 +45,9 @@ export const api = {
   voiceCompetitorsByState: (state) => get(`/voice/competitors-by-state?state=${encodeURIComponent(state)}`),
   voiceCompetitorsByCounty: (state, countyFips) =>
     get(`/voice/competitors-by-county?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}`),
+  voiceBrandOptions: () => get('/voice/brand-options'),
+  voiceMainBrandStates: (brandId) => get(`/voice/main-brand/states?brand_id=${brandId}`),
+  voiceMainBrandCounties: (brandId, state) => get(`/voice/main-brand/counties?brand_id=${brandId}&state=${encodeURIComponent(state)}`),
+  voiceMainBrandTowns: (brandId, state, countyFips) =>
+    get(`/voice/main-brand/towns?brand_id=${brandId}&state=${encodeURIComponent(state)}${countyFips ? `&county_fips=${encodeURIComponent(countyFips)}` : ''}`),
 }
