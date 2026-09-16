@@ -58,16 +58,23 @@ def _tier(brand_rating, avg_other, max_other):
     return "red"
 
 
-def _area_tier(pct_green):
-    """County-from-towns and state-from-counties share this same tiering,
-    per spec: dark green >=90%, light green >=80%, yellow 50-80%, red under."""
-    if pct_green >= 0.9:
-        return "dark_green"
-    if pct_green >= 0.8:
+def _rollup_tier(child_tiers, green_tiers):
+    """County-from-towns and state-from-counties share this same rule (per
+    spec): any red child forces red, regardless of how many others are
+    green - one bad town/county isn't washed out by an average. Otherwise:
+    every child green -> light green, half or more green -> dark green,
+    anything else -> yellow. `green_tiers` says which child tier(s) count as
+    "green" here - just {"green"} for towns rolling up into a county, but
+    {"dark_green", "light_green"} for counties rolling up into a state."""
+    if any(t == "red" for t in child_tiers):
+        return "red"
+    n_green = sum(1 for t in child_tiers if t in green_tiers)
+    total = len(child_tiers)
+    if n_green == total:
         return "light_green"
-    if pct_green >= 0.5:
-        return "yellow"
-    return "red"
+    if n_green / total >= 0.5:
+        return "dark_green"
+    return "yellow"
 
 
 def _brand_town_ratings(brand_id: int, state: str = None) -> list:
@@ -149,7 +156,7 @@ def _rollup_counties(town_rows: list) -> list:
         out.append({
             "state": state, "county_fips": fips, "county_name": name,
             "n_towns": len(towns), "n_green": n_green, "pct_green": pct_green,
-            "tier": _area_tier(pct_green),
+            "tier": _rollup_tier([t["tier"] for t in towns], green_tiers={"green"}),
         })
     return out
 
@@ -177,7 +184,7 @@ def main_brand_states(brand_id: int) -> list:
         pct_green = n_green / len(state_counties)
         out.append({
             "state": state, "n_counties": len(state_counties), "n_green": n_green, "pct_green": pct_green,
-            "tier": _area_tier(pct_green),
+            "tier": _rollup_tier([c["tier"] for c in state_counties], green_tiers={"dark_green", "light_green"}),
         })
     return out
 

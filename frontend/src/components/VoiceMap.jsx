@@ -106,10 +106,10 @@ function TierLegend({ level }) {
         </>
       ) : (
         <>
-          <Swatch color={TIER_DARK_GREEN} label="90%+ of towns green" />
-          <Swatch color={TIER_LIGHT_GREEN} label="80-90% green" />
-          <Swatch color={TIER_YELLOW} label="50-80% green" />
-          <Swatch color={ROSE} label="under 50% green" />
+          <Swatch color={TIER_LIGHT_GREEN} label="all green" />
+          <Swatch color={TIER_DARK_GREEN} label="50%+ green" />
+          <Swatch color={TIER_YELLOW} label="some green, under 50%" />
+          <Swatch color={ROSE} label="any red" />
         </>
       )}
       <Swatch color={SLATE_200} label="no location for this brand" />
@@ -134,7 +134,8 @@ function mainBrandAreaTooltip(label, a, unitWord) {
   const tierLabel = { dark_green: 'Dark green', light_green: 'Light green', yellow: 'Yellow', red: 'Red' }[a.tier]
   const pct = Math.round(a.pct_green * 100)
   const n = unitWord === 'counties' ? a.n_counties : a.n_towns
-  return `${label}: ${tierLabel} - ${pct}% of ${unitWord} green (${a.n_green}/${n})`
+  const note = a.tier === 'red' && a.pct_green > 0 ? ` - at least one red ${unitWord.slice(0, -1)}` : ''
+  return `${label}: ${tierLabel} - ${pct}% of ${unitWord} green (${a.n_green}/${n})${note}`
 }
 
 function Crumbs({ items }) {
