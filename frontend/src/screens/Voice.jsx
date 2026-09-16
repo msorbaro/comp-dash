@@ -17,7 +17,6 @@ export default function Voice() {
   const [states, setStates] = useState(null)
   const [error, setError] = useState(null)
   const [view, setView] = useState('map')
-  const [drillState, setDrillState] = useState(null)
 
   const load = () => {
     setStates(null)
@@ -54,16 +53,9 @@ export default function Voice() {
       ) : !states ? <PageSkeleton cards={1} gridItems={6} /> : (
         <div style={cardBase}>
           {view === 'map' ? (
-            <VoiceMap
-              states={states}
-              onSelectState={(code) => { setDrillState(code); setView('table') }}
-            />
+            <VoiceMap states={states} />
           ) : (
-            <VoiceTable
-              states={states}
-              initialState={drillState}
-              onDrillChange={(d) => { if (d.level === 'state') setDrillState(null) }}
-            />
+            <VoiceTable states={states} />
           )}
         </div>
       )}

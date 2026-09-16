@@ -37,6 +37,8 @@ export const api = {
   refresh: () => fetch(BASE + '/refresh', { method: 'POST' }),
   voiceStates: () => get('/voice/states'),
   voiceTowns: (state) => get(`/voice/towns?state=${encodeURIComponent(state)}`),
-  voiceStores: (state, city) => get(`/voice/stores?state=${encodeURIComponent(state)}${city ? `&city=${encodeURIComponent(city)}` : ''}`),
+  voiceStores: (state, city, countyFips) =>
+    get(`/voice/stores?state=${encodeURIComponent(state)}${city ? `&city=${encodeURIComponent(city)}` : ''}${countyFips ? `&county_fips=${encodeURIComponent(countyFips)}` : ''}`),
   voiceBrands: (state) => get(`/voice/brands?state=${encodeURIComponent(state)}`),
+  voiceCounties: (state) => get(`/voice/counties?state=${encodeURIComponent(state)}`),
 }
