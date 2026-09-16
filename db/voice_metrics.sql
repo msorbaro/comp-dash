@@ -14,6 +14,7 @@
 -- that produced it."
 
 DROP MATERIALIZED VIEW IF EXISTS voice.brand_state_delta CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS voice.county_delta CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.town_delta CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.state_delta CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.location_benchmark CASCADE;
@@ -35,7 +36,7 @@ global_mean AS (
 )
 SELECT
     l.location_id, l.brand_id, b.name AS brand_name, b.family,
-    l.name AS location_name, l.city, l.state, l.lat, l.lng,
+    l.name AS location_name, l.city, l.state, l.county_fips, l.county_name, l.lat, l.lng,
     r.avg_rating AS raw_rating, r.review_count AS n,
     (r.review_count * r.avg_rating + {shrinkage_m} * g.c) / (r.review_count + {shrinkage_m}) AS adj_rating
 FROM voice.locations l
@@ -53,7 +54,7 @@ CREATE INDEX ON voice.location_adjusted_ratings (family);
 CREATE MATERIALIZED VIEW voice.location_benchmark AS
 SELECT
     m.location_id, m.brand_id, m.brand_name, m.location_name,
-    m.city, m.state, m.lat, m.lng,
+    m.city, m.state, m.county_fips, m.county_name, m.lat, m.lng,
     m.raw_rating AS mavis_raw_rating, m.adj_rating AS mavis_adj_rating, m.n AS mavis_n,
     count(c.location_id) AS n_competitors_in_ring,
     sum(c.n) AS comp_total_reviews,
@@ -69,7 +70,7 @@ LEFT JOIN voice.location_adjusted_ratings c
             + cos(radians(m.lat)) * cos(radians(c.lat)) * sin(radians(c.lng - m.lng) / 2) ^ 2
         )) <= {ring_radius_km}
 WHERE m.family = 'mavis'
-GROUP BY m.location_id, m.brand_id, m.brand_name, m.location_name, m.city, m.state, m.lat, m.lng,
+GROUP BY m.location_id, m.brand_id, m.brand_name, m.location_name, m.city, m.state, m.county_fips, m.county_name, m.lat, m.lng,
          m.raw_rating, m.adj_rating, m.n;
 
 CREATE UNIQUE INDEX ON voice.location_benchmark (location_id);
@@ -121,6 +122,30 @@ WHERE delta IS NOT NULL
 GROUP BY state, city;
 
 CREATE UNIQUE INDEX ON voice.town_delta (state, city);
+
+-- Same again, grouped by (state, county) instead of (state, city) - the
+-- map's state-click-to-counties drill-down. County comes from each
+-- location's zip via a HUD crosswalk (scripts/backfill_voice_counties.py),
+-- not city-name text, so this is a clean administrative-boundary rollup
+-- independent of how a place lists its own town name. Same town-level
+-- suppression bar (a county is a similarly small slice as a town).
+CREATE MATERIALIZED VIEW voice.county_delta AS
+SELECT
+    state, county_fips, county_name,
+    count(*) AS n_mavis_locations,
+    sum(mavis_n) AS total_mavis_reviews,
+    sum(CASE WHEN low_comparability THEN 1 ELSE 0 END) AS n_low_comparability_locations,
+    (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0)) AS avg_mavis_adj_rating,
+    (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS county_delta,
+    (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0))
+        - (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
+    (count(*) < {min_locations_for_town} OR coalesce(sum(mavis_n), 0) < {min_reviews_for_town}) AS suppressed
+FROM voice.location_benchmark
+WHERE delta IS NOT NULL AND county_fips IS NOT NULL
+GROUP BY state, county_fips, county_name;
+
+CREATE UNIQUE INDEX ON voice.county_delta (county_fips);
+CREATE INDEX ON voice.county_delta (state);
 
 -- Per-brand state rollup - same shape as state_delta, but grouped by Mavis
 -- banner too, so "how does Midas do in Texas vs local competitors" is its

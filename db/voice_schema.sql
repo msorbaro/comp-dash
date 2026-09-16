@@ -42,6 +42,15 @@ CREATE TABLE IF NOT EXISTS voice.locations (
 CREATE INDEX IF NOT EXISTS idx_voice_locations_brand ON voice.locations(brand_id);
 CREATE INDEX IF NOT EXISTS idx_voice_locations_state ON voice.locations(state);
 
+-- County attribution (added for the map's state -> county -> store
+-- drill-down) - derived from each location's own zip via a HUD ZIP-COUNTY
+-- crosswalk, not fabricated or geocoded live. See
+-- scripts/backfill_voice_counties.py; NULL means the zip had no crosswalk
+-- match rather than a guess.
+ALTER TABLE voice.locations ADD COLUMN IF NOT EXISTS county_fips TEXT;
+ALTER TABLE voice.locations ADD COLUMN IF NOT EXISTS county_name TEXT;
+CREATE INDEX IF NOT EXISTS idx_voice_locations_county ON voice.locations(county_fips);
+
 -- Append-only time series (never overwritten) - one row per pull, so rating
 -- movement can be trended over time instead of only ever showing "now".
 CREATE TABLE IF NOT EXISTS voice.rating_snapshots (

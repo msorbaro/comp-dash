@@ -103,7 +103,33 @@ def town_summary(state: str) -> list:
     ]
 
 
-def store_summary(state: str, city: str = None) -> list:
+def county_summary(state: str) -> list:
+    """Same shape as town_summary(), grouped by county (from the HUD ZIP-COUNTY
+    crosswalk backfill) instead of city - the map's state -> county drill."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT county_fips, county_name, n_mavis_locations, total_mavis_reviews, n_low_comparability_locations,
+                       avg_mavis_adj_rating, county_delta, avg_comp_benchmark_rating, suppressed
+                FROM voice.county_delta
+                WHERE state = %s
+                ORDER BY county_delta DESC NULLS LAST
+            """, (state,))
+            rows = cur.fetchall()
+    return [
+        {
+            "county_fips": fips, "county_name": name, "n_mavis_locations": n_locations,
+            "total_mavis_reviews": total_reviews, "n_low_comparability_locations": n_low_comp,
+            "mavis_rating": float(mavis_rating) if mavis_rating is not None else None,
+            "delta": float(delta) if delta is not None else None,
+            "comp_rating": float(comp_rating) if comp_rating is not None else None,
+            "suppressed": suppressed,
+        }
+        for fips, name, n_locations, total_reviews, n_low_comp, mavis_rating, delta, comp_rating, suppressed in rows
+    ]
+
+
+def store_summary(state: str, city: str = None, county_fips: str = None) -> list:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -112,9 +138,11 @@ def store_summary(state: str, city: str = None) -> list:
                        comp_benchmark_rating, comp_total_reviews, n_competitors_in_ring,
                        delta, low_comparability
                 FROM voice.location_benchmark
-                WHERE state = %(state)s AND (%(city)s::text IS NULL OR city = %(city)s::text)
+                WHERE state = %(state)s
+                  AND (%(city)s::text IS NULL OR city = %(city)s::text)
+                  AND (%(county_fips)s::text IS NULL OR county_fips = %(county_fips)s::text)
                 ORDER BY delta DESC NULLS LAST
-            """, {"state": state, "city": city})
+            """, {"state": state, "city": city, "county_fips": county_fips})
             rows = cur.fetchall()
     return [
         {

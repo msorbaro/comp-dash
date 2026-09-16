@@ -48,6 +48,10 @@ def run():
             n_towns_visible = cur.fetchone()[0]
             cur.execute("SELECT count(*) FROM voice.brand_state_delta")
             n_brand_states = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM voice.county_delta")
+            n_counties = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM voice.county_delta WHERE NOT suppressed")
+            n_counties_visible = cur.fetchone()[0]
 
     print(f"Rebuilt with shrinkage_m={config['shrinkage_m']}, "
           f"ring_radius_miles={config['ring_radius_miles']}, "
@@ -59,6 +63,7 @@ def run():
     print(f"location_benchmark: {n_benchmarked} Mavis locations benchmarked")
     print(f"state_delta: {n_states} states with data, {n_states_visible} pass the suppression threshold")
     print(f"town_delta: {n_towns} towns with data, {n_towns_visible} pass the suppression threshold")
+    print(f"county_delta: {n_counties} counties with data, {n_counties_visible} pass the suppression threshold")
     print(f"brand_state_delta: {n_brand_states} (state, brand) rows")
 
 
