@@ -138,6 +138,21 @@ function mainBrandAreaTooltip(label, a, unitWord) {
   return `${label}: ${tierLabel} - ${pct}% of ${unitWord} green (${a.n_green}/${n})${note}`
 }
 
+const TIER_LABEL = { dark_green: 'dark green', light_green: 'light green', yellow: 'yellow', red: 'red' }
+
+// State color is whichever tier is most common among its counties (a
+// plurality vote), not a percentage threshold - the tooltip shows the
+// actual breakdown so "why is this state yellow" is answerable at a glance.
+function mainBrandStateTooltip(label, s) {
+  if (!s) return `${label}: no locations for this brand`
+  const counts = s.tier_counts || {}
+  const breakdown = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tier, n]) => `${n} ${TIER_LABEL[tier]}`)
+    .join(', ')
+  return `${label}: ${TIER_LABEL[s.tier]} (majority) - ${s.n_counties} counties: ${breakdown}`
+}
+
 function Crumbs({ items }) {
   return (
     <div style={{ fontSize: 11, color: MUTED, marginBottom: 10 }}>
@@ -398,7 +413,7 @@ export default function VoiceMap({ states }) {
                       onClick={() => { if (visible) chooseState({ code: s.state, name: s.state_name }) }}
                       style={regionStyle(fill, visible)}
                     >
-                      <title>{mainBrandAreaTooltip(geo.properties?.name, mb, 'counties')}</title>
+                      <title>{mainBrandStateTooltip(geo.properties?.name, mb)}</title>
                     </Geography>
                   )
                 }

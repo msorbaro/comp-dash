@@ -8,6 +8,7 @@ directly in Supabase Studio, not a second implementation of the math.
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -167,12 +168,17 @@ def main_brand_counties(brand_id: int, state: str) -> list:
     return _rollup_counties(_brand_town_ratings(brand_id, state))
 
 
+# Tie-break only, when two+ tiers are equally common among a state's
+# counties - favors the more cautionary reading, consistent with the
+# county rule's own "one red shouldn't get averaged away" philosophy.
+_TIER_TIEBREAK = {"red": 0, "yellow": 1, "dark_green": 2, "light_green": 3}
+
+
 def main_brand_states(brand_id: int) -> list:
-    """State-level tier for one brand, across every state it has a location
-    in - rolled up from counties the same way counties roll up from towns
-    (per spec: "the states should use the same tiered logic to roll up the
-    counties"), counting a county as "green" for this purpose if it's
-    either shade of green."""
+    """State-level tier for one brand: whichever tier is most common among
+    its counties (a plurality vote), not a percentage rollup - "the state
+    should be the color of the majority of the counties." Ties broken
+    toward the more cautionary tier."""
     all_towns = _brand_town_ratings(brand_id, state=None)
     counties = _rollup_counties(all_towns)
     by_state = {}
@@ -182,9 +188,12 @@ def main_brand_states(brand_id: int) -> list:
     for state, state_counties in by_state.items():
         n_green = sum(1 for c in state_counties if c["tier"] in ("dark_green", "light_green"))
         pct_green = n_green / len(state_counties)
+        tier_counts = Counter(c["tier"] for c in state_counties)
+        best = max(tier_counts.values())
+        majority_tier = min((t for t, n in tier_counts.items() if n == best), key=_TIER_TIEBREAK.get)
         out.append({
             "state": state, "n_counties": len(state_counties), "n_green": n_green, "pct_green": pct_green,
-            "tier": _rollup_tier([c["tier"] for c in state_counties], green_tiers={"dark_green", "light_green"}),
+            "tier": majority_tier, "tier_counts": dict(tier_counts),
         })
     return out
 
