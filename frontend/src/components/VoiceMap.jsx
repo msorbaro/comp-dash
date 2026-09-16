@@ -22,6 +22,12 @@ const STATE_FIPS_BY_NAME = Object.fromEntries(
 const WIDTH = 900
 const HEIGHT = 520
 
+// Mirrors backend/voice_data.py's _STATE_GAP_GREEN/_STATE_GAP_RED - only
+// used here to label the legend with the real threshold values, not to
+// recompute anything (the tier itself always comes from the API).
+const STATE_GAP_GREEN = 0.15
+const STATE_GAP_RED = -0.1
+
 // A projection fit to just the given features' bounding box, for the
 // county-level and store-marker views - the national map's fixed
 // geoAlbersUsa projection can't be zoomed into a single state or county.
@@ -93,23 +99,31 @@ function Legend({ grayLabel }) {
   )
 }
 
-// Main-brand mode's legend - town level is a plain 3-way verdict; county
-// and state add the dark/light green split for the %-of-green-areas rollup.
+// Main-brand mode's legend. Town and state are both a plain 3-way verdict
+// (state = the brand's real weighted-average rating gap vs. everyone else,
+// not a rollup of county colors); county alone keeps the dark/light green
+// split, since it's still a %-of-green-towns rollup.
 function TierLegend({ level }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 18, marginTop: 8, fontSize: 10.5, color: MUTED }}>
-      {level === 'town' ? (
-        <>
-          <Swatch color={GREEN} label="beats every other location here" />
-          <Swatch color={TIER_YELLOW} label="beats the local average" />
-          <Swatch color={ROSE} label="below the local average" />
-        </>
-      ) : (
+      {level === 'county' ? (
         <>
           <Swatch color={TIER_LIGHT_GREEN} label="all green" />
           <Swatch color={TIER_DARK_GREEN} label="50%+ green" />
           <Swatch color={TIER_YELLOW} label="some green, under 50%" />
           <Swatch color={ROSE} label="any red" />
+        </>
+      ) : level === 'state' ? (
+        <>
+          <Swatch color={GREEN} label={`avg gap > +${STATE_GAP_GREEN.toFixed(2)}`} />
+          <Swatch color={TIER_YELLOW} label={`avg gap ${STATE_GAP_RED.toFixed(2)} to +${STATE_GAP_GREEN.toFixed(2)}`} />
+          <Swatch color={ROSE} label={`avg gap < ${STATE_GAP_RED.toFixed(2)}`} />
+        </>
+      ) : (
+        <>
+          <Swatch color={GREEN} label="beats every other location here" />
+          <Swatch color={TIER_YELLOW} label="beats the local average" />
+          <Swatch color={ROSE} label="below the local average" />
         </>
       )}
       <Swatch color={SLATE_200} label="no location for this brand" />
@@ -138,19 +152,22 @@ function mainBrandAreaTooltip(label, a, unitWord) {
   return `${label}: ${tierLabel} - ${pct}% of ${unitWord} green (${a.n_green}/${n})${note}`
 }
 
-const TIER_LABEL = { dark_green: 'dark green', light_green: 'light green', yellow: 'yellow', red: 'red' }
-
-// State color is whichever tier is most common among its counties (a
-// plurality vote), not a percentage threshold - the tooltip shows the
-// actual breakdown so "why is this state yellow" is answerable at a glance.
+// State color is NOT a rollup of county tiers (voting over discrete labels
+// overstated things - enough barely-positive "yellow" towns could outvote
+// real red ones). It's the brand's own weighted-average rating gap vs.
+// every other tracked location, across every town it competes in - a real
+// number, not a count, so it can't be inflated by a pile of marginal towns.
 function mainBrandStateTooltip(label, s) {
   if (!s) return `${label}: no locations for this brand`
-  const counts = s.tier_counts || {}
-  const breakdown = Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .map(([tier, n]) => `${n} ${TIER_LABEL[tier]}`)
-    .join(', ')
-  return `${label}: ${TIER_LABEL[s.tier]} (majority) - ${s.n_counties} counties: ${breakdown}`
+  if (s.avg_gap === null || s.avg_gap === undefined) {
+    return `${label}: green - no other tracked brand has a location in any of its ${s.n_towns} town(s)`
+  }
+  const sign = s.avg_gap >= 0 ? '+' : ''
+  const uncontestedNote = s.n_towns_uncontested > 0 ? `, ${s.n_towns_uncontested} uncontested (excluded)` : ''
+  return (
+    `${label}: ${sign}${s.avg_gap.toFixed(2)} stars vs. competitors on average\n` +
+    `weighted across ${s.n_towns_with_competition} town(s) with competition${uncontestedNote}`
+  )
 }
 
 function Crumbs({ items }) {
