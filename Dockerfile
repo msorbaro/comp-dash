@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./backend/
 COPY db/ ./db/
 COPY categorize/ ./categorize/
+COPY voice/ ./voice/
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 ENV PYTHONUNBUFFERED=1
