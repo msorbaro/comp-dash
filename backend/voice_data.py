@@ -100,6 +100,50 @@ def brand_state_summary(state: str) -> list:
     ]
 
 
+def competitor_state_summary(state: str) -> list:
+    """Each named competitor's own footprint and average rating within a
+    state - no delta/benchmark here (that's specifically Mavis vs. its
+    nearby competitors; a competitor doesn't have one vs. itself)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT brand_name, n_locations, total_reviews, avg_raw_rating, avg_adj_rating
+                FROM voice.competitor_state_rollup
+                WHERE state = %s
+                ORDER BY avg_adj_rating DESC NULLS LAST
+            """, (state,))
+            rows = cur.fetchall()
+    return [
+        {
+            "brand": brand, "n_locations": n_locations, "total_reviews": total_reviews,
+            "avg_raw_rating": float(raw) if raw is not None else None,
+            "avg_adj_rating": float(adj) if adj is not None else None,
+        }
+        for brand, n_locations, total_reviews, raw, adj in rows
+    ]
+
+
+def competitor_county_summary(state: str, county_fips: str) -> list:
+    """Same as competitor_state_summary(), scoped to one county."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT brand_name, n_locations, total_reviews, avg_raw_rating, avg_adj_rating
+                FROM voice.competitor_county_rollup
+                WHERE state = %(state)s AND county_fips = %(county_fips)s
+                ORDER BY avg_adj_rating DESC NULLS LAST
+            """, {"state": state, "county_fips": county_fips})
+            rows = cur.fetchall()
+    return [
+        {
+            "brand": brand, "n_locations": n_locations, "total_reviews": total_reviews,
+            "avg_raw_rating": float(raw) if raw is not None else None,
+            "avg_adj_rating": float(adj) if adj is not None else None,
+        }
+        for brand, n_locations, total_reviews, raw, adj in rows
+    ]
+
+
 def town_summary(state: str) -> list:
     with get_conn() as conn:
         with conn.cursor() as cur:

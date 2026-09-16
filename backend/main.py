@@ -768,6 +768,16 @@ def get_voice_county_towns(state: str, county_fips: str):
     return _clean(voice_data.county_town_summary(state, county_fips))
 
 
+@app.get("/api/voice/competitors-by-state")
+def get_voice_competitors_by_state(state: str):
+    return _clean(voice_data.competitor_state_summary(state))
+
+
+@app.get("/api/voice/competitors-by-county")
+def get_voice_competitors_by_county(state: str, county_fips: str):
+    return _clean(voice_data.competitor_county_summary(state, county_fips))
+
+
 def _warm_cache_loop():
     # On a CPU-throttled free-tier host, the expensive pages (Landscape,
     # the "Our Brands" rollup, each own brand) are too slow to compute

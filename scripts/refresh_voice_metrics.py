@@ -54,6 +54,10 @@ def run():
             n_counties_visible = cur.fetchone()[0]
             cur.execute("SELECT count(*) FROM voice.county_town_delta")
             n_county_towns = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM voice.competitor_state_rollup")
+            n_comp_states = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM voice.competitor_county_rollup")
+            n_comp_counties = cur.fetchone()[0]
 
     print(f"Rebuilt with shrinkage_m={config['shrinkage_m']}, "
           f"ring_radius_miles={config['ring_radius_miles']}, "
@@ -68,6 +72,8 @@ def run():
     print(f"county_delta: {n_counties} counties with data, {n_counties_visible} pass the suppression threshold")
     print(f"county_town_delta: {n_county_towns} (county, town) rows")
     print(f"brand_state_delta: {n_brand_states} (state, brand) rows")
+    print(f"competitor_state_rollup: {n_comp_states} (state, competitor) rows")
+    print(f"competitor_county_rollup: {n_comp_counties} (county, competitor) rows")
 
 
 if __name__ == "__main__":

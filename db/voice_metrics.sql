@@ -13,6 +13,8 @@
 -- that number back through the materialized view to the individual stores
 -- that produced it."
 
+DROP MATERIALIZED VIEW IF EXISTS voice.competitor_county_rollup CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS voice.competitor_state_rollup CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.brand_state_delta CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.county_town_delta CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.county_delta CASCADE;
@@ -190,3 +192,35 @@ WHERE delta IS NOT NULL
 GROUP BY state, brand_id, brand_name;
 
 CREATE INDEX ON voice.brand_state_delta (state);
+
+-- Per-competitor rollups - each named competitor's own footprint and
+-- average rating within a state/county, independent of Mavis entirely (no
+-- delta/benchmark here - "delta" is specifically Mavis vs. its nearby
+-- competitors, and a competitor doesn't have one vs. itself). Same
+-- shrinkage-adjusted rating already computed in location_adjusted_ratings,
+-- just pooled per brand instead of per location.
+CREATE MATERIALIZED VIEW voice.competitor_state_rollup AS
+SELECT
+    state, brand_id, brand_name,
+    count(*) AS n_locations,
+    sum(n) AS total_reviews,
+    (sum(n * raw_rating) / NULLIF(sum(n), 0)) AS avg_raw_rating,
+    (sum(n * adj_rating) / NULLIF(sum(n), 0)) AS avg_adj_rating
+FROM voice.location_adjusted_ratings
+WHERE family = 'competitor'
+GROUP BY state, brand_id, brand_name;
+
+CREATE INDEX ON voice.competitor_state_rollup (state);
+
+CREATE MATERIALIZED VIEW voice.competitor_county_rollup AS
+SELECT
+    state, county_fips, county_name, brand_id, brand_name,
+    count(*) AS n_locations,
+    sum(n) AS total_reviews,
+    (sum(n * raw_rating) / NULLIF(sum(n), 0)) AS avg_raw_rating,
+    (sum(n * adj_rating) / NULLIF(sum(n), 0)) AS avg_adj_rating
+FROM voice.location_adjusted_ratings
+WHERE family = 'competitor' AND county_fips IS NOT NULL
+GROUP BY state, county_fips, county_name, brand_id, brand_name;
+
+CREATE INDEX ON voice.competitor_county_rollup (county_fips);
