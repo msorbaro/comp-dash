@@ -154,15 +154,22 @@ def county_town_summary(state: str, county_fips: str) -> list:
     """Towns within one county - the map's county -> town drill, one level
     deeper than county_summary(). Scoped to a single county (not state-wide
     like town_summary()) since the same town name can exist in different
-    counties."""
+    counties. Left-joined to voice.town_boundaries (real Census place
+    polygons, see scripts/backfill_town_boundaries.py) so the map can color
+    an actual town shape the same way it colors counties - `geometry` is
+    None for the minority of towns with no matching Census place (logged,
+    not guessed, at backfill time), which the frontend falls back to a
+    plain list entry for."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT city, n_mavis_locations, total_mavis_reviews, n_low_comparability_locations,
-                       avg_mavis_adj_rating, town_delta, avg_comp_benchmark_rating, suppressed
-                FROM voice.county_town_delta
-                WHERE state = %(state)s AND county_fips = %(county_fips)s
-                ORDER BY town_delta DESC NULLS LAST
+                SELECT ctd.city, ctd.n_mavis_locations, ctd.total_mavis_reviews, ctd.n_low_comparability_locations,
+                       ctd.avg_mavis_adj_rating, ctd.town_delta, ctd.avg_comp_benchmark_rating, ctd.suppressed,
+                       tb.geometry
+                FROM voice.county_town_delta ctd
+                LEFT JOIN voice.town_boundaries tb ON tb.state = ctd.state AND tb.city = ctd.city
+                WHERE ctd.state = %(state)s AND ctd.county_fips = %(county_fips)s
+                ORDER BY ctd.town_delta DESC NULLS LAST
             """, {"state": state, "county_fips": county_fips})
             rows = cur.fetchall()
     return [
@@ -173,8 +180,9 @@ def county_town_summary(state: str, county_fips: str) -> list:
             "delta": float(delta) if delta is not None else None,
             "comp_rating": float(comp_rating) if comp_rating is not None else None,
             "suppressed": suppressed,
+            "geometry": geometry,
         }
-        for city, n_locations, total_reviews, n_low_comp, mavis_rating, delta, comp_rating, suppressed in rows
+        for city, n_locations, total_reviews, n_low_comp, mavis_rating, delta, comp_rating, suppressed, geometry in rows
     ]
 
 

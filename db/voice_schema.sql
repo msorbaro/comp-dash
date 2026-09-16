@@ -76,3 +76,17 @@ CREATE TABLE IF NOT EXISTS voice.location_census_runs (
     completed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (brand_id, state)
 );
+
+-- Town (Census "place") boundary polygons, for the map's county -> town
+-- drill-down - one row per (state, town) actually present in our own data.
+-- Geometry comes from the real US Census TIGER Places dataset (see
+-- scripts/backfill_town_boundaries.py), not drawn/approximated - a town
+-- with no matching Census place is simply absent here (matched = false
+-- logged, never a guessed shape).
+CREATE TABLE IF NOT EXISTS voice.town_boundaries (
+    state        TEXT NOT NULL,
+    city         TEXT NOT NULL,
+    geometry     JSONB NOT NULL,
+    fetched_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (state, city)
+);

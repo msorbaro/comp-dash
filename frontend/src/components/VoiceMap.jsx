@@ -156,35 +156,29 @@ function fmtTownStatus(t) {
   return `${sign}${t.delta.toFixed(2)} vs. competitors${comparabilityNote(t)}`
 }
 
-// Plain clickable list, not a map layer - there's no standardized US
-// town/place boundary topology the way there is for states and counties,
-// so "drill into a town" is a picker rather than another polygon map.
-function TownList({ towns, onSelectTown, onViewAll }) {
+// Fallback for the minority of towns with no matching Census place polygon
+// (see scripts/backfill_town_boundaries.py) - still selectable, just not
+// drawn as a shape on the map above.
+function UnmappedTownList({ towns, onSelectTown }) {
+  if (!towns.length) return null
   return (
-    <div style={{ maxWidth: 560, margin: '0 auto' }}>
-      <div
-        onClick={onViewAll}
-        style={{
-          display: 'flex', justifyContent: 'space-between', padding: '10px 14px', marginBottom: 8, borderRadius: 8,
-          background: '#F6F8FA', border: `1px solid ${SLATE_200}`, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: DEEP_TEAL,
-        }}
-      >
-        <span>View every location in the county</span>
-        <span>→</span>
+    <div style={{ maxWidth: 560, margin: '10px auto 0' }}>
+      <div style={{ fontSize: 9.5, letterSpacing: '.1em', color: MUTED, fontWeight: 600, marginBottom: 4 }}>
+        NO MAPPED BOUNDARY FOR THESE TOWNS
       </div>
       {towns.map((t) => (
         <div
           key={t.city}
           onClick={() => onSelectTown(t.city)}
           style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px',
-            borderBottom: `1px solid ${SLATE_200}`, cursor: 'pointer', fontSize: 12.5,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 10px',
+            borderBottom: `1px solid ${SLATE_200}`, cursor: 'pointer', fontSize: 12,
           }}
         >
           <span style={{ color: INK_TEXT }}>{t.city}</span>
-          <span style={{ display: 'flex', gap: 14, alignItems: 'baseline' }}>
-            <span style={{ fontSize: 10.5, color: SLATE_600 }}>{t.n_mavis_locations} Mavis loc.</span>
-            <span style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 600, color: t.suppressed ? MUTED : (t.delta >= 0 ? GREEN : ROSE) }}>
+          <span style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
+            <span style={{ fontSize: 10, color: SLATE_600 }}>{t.n_mavis_locations} Mavis loc.</span>
+            <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: t.suppressed ? MUTED : (t.delta >= 0 ? GREEN : ROSE) }}>
               {fmtTownStatus(t)}
             </span>
           </span>
@@ -264,6 +258,38 @@ export default function VoiceMap({ states }) {
     [selectedCountyFeature]
   )
 
+  // Towns with a real Census place polygon (see scripts/backfill_town_boundaries.py)
+  // render as their own colored shapes, same as counties; the rest fall
+  // back to a plain clickable list below the map.
+  const mappedTowns = useMemo(() => (towns || []).filter((t) => t.geometry), [towns])
+  const unmappedTowns = useMemo(() => (towns || []).filter((t) => !t.geometry), [towns])
+  const townFeatureCollection = useMemo(
+    () => ({
+      type: 'FeatureCollection',
+      features: mappedTowns.map((t) => ({ type: 'Feature', id: t.city, properties: { name: t.city }, geometry: t.geometry })),
+    }),
+    [mappedTowns]
+  )
+  const byTownCity = useMemo(() => Object.fromEntries((towns || []).map((t) => [t.city, t])), [towns])
+
+  // Once a specific town is chosen, zoom to its own polygon instead of
+  // staying at the whole county's zoom level - "zoom into a high level map
+  // of the town" per spec. Falls back to the county's own outline/zoom for
+  // "view all" or for a town with no mapped boundary.
+  const selectedTownFeature = useMemo(() => {
+    if (!townChoice?.city) return null
+    const t = byTownCity[townChoice.city]
+    return t?.geometry ? { type: 'Feature', id: t.city, properties: { name: t.city }, geometry: t.geometry } : null
+  }, [townChoice, byTownCity])
+  const storesBackgroundCollection = useMemo(
+    () => (selectedTownFeature ? { type: 'FeatureCollection', features: [selectedTownFeature] } : selectedCountyFeatureCollection),
+    [selectedTownFeature, selectedCountyFeatureCollection]
+  )
+  const storesFitProjection = useMemo(
+    () => (selectedTownFeature ? fitProjection([selectedTownFeature], 40) : storesProjection),
+    [selectedTownFeature, storesProjection]
+  )
+
   const crumbs = [{ label: 'All states', onClick: mode !== 'us' ? () => chooseState(null) : null }]
   if (selectedState) crumbs.push({ label: selectedState.name, onClick: mode !== 'county' ? () => chooseCounty(null) : null })
   if (selectedCounty) crumbs.push({ label: `${selectedCounty.name} County`, onClick: mode === 'stores' ? () => setTownChoice(null) : null })
@@ -323,31 +349,45 @@ export default function VoiceMap({ states }) {
 
       {mode === 'town' && (
         <>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+            <span
+              onClick={() => setTownChoice({ city: null })}
+              style={{ fontSize: 11, fontWeight: 600, color: DEEP_TEAL, cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              View every location in the county →
+            </span>
+          </div>
           <ComposableMap projection={storesProjection || 'geoMercator'} width={WIDTH} height={HEIGHT} style={{ width: '100%', height: 'auto' }}>
-            <Geographies geography={selectedCountyFeatureCollection}>
+            <Geographies geography={townFeatureCollection}>
               {({ geographies }) =>
-                geographies.map((geo) => (
-                  <Geography key={geo.id} geography={geo} style={regionStyle('#F6F8FA', false)} />
-                ))
+                geographies.map((geo) => {
+                  const t = byTownCity[geo.properties?.name]
+                  const visible = !!(t && !t.suppressed)
+                  const fill = visible ? divergingColor(t.delta) : SLATE_200
+                  return (
+                    <Geography
+                      key={geo.id}
+                      geography={geo}
+                      title={areaTooltip(geo.properties?.name, t)}
+                      onClick={() => setTownChoice({ city: geo.properties?.name })}
+                      style={regionStyle(fill, true)}
+                    />
+                  )
+                })
               }
             </Geographies>
           </ComposableMap>
-          {!error && towns === null ? (
+          {!error && towns === null && (
             <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading towns…</div>
-          ) : towns && towns.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>
-              No towns broken out for this county -{' '}
-              <span onClick={() => setTownChoice({ city: null })} style={{ textDecoration: 'underline', cursor: 'pointer', color: TEAL_700 }}>view all locations</span>.
-            </div>
-          ) : towns ? (
-            <TownList towns={towns} onSelectTown={(city) => setTownChoice({ city })} onViewAll={() => setTownChoice({ city: null })} />
-          ) : null}
+          )}
+          {towns && <UnmappedTownList towns={unmappedTowns} onSelectTown={(city) => setTownChoice({ city })} />}
+          {towns && <Legend grayLabel="insufficient data" />}
         </>
       )}
 
       {mode === 'stores' && (
-        <ComposableMap projection={storesProjection || 'geoMercator'} width={WIDTH} height={HEIGHT} style={{ width: '100%', height: 'auto' }}>
-          <Geographies geography={selectedCountyFeatureCollection}>
+        <ComposableMap projection={storesFitProjection || 'geoMercator'} width={WIDTH} height={HEIGHT} style={{ width: '100%', height: 'auto' }}>
+          <Geographies geography={storesBackgroundCollection}>
             {({ geographies }) =>
               geographies.map((geo) => (
                 <Geography key={geo.id} geography={geo} style={regionStyle('#F6F8FA', false)} />
