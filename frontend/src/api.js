@@ -36,13 +36,13 @@ export const api = {
   compare: (a, b) => get(`/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
   refresh: () => fetch(BASE + '/refresh', { method: 'POST' }),
   voiceStates: () => get('/voice/states'),
-  voiceTowns: (state) => get(`/voice/towns?state=${encodeURIComponent(state)}`),
-  voiceStores: (state, city, countyFips) =>
-    get(`/voice/stores?state=${encodeURIComponent(state)}${city ? `&city=${encodeURIComponent(city)}` : ''}${countyFips ? `&county_fips=${encodeURIComponent(countyFips)}` : ''}`),
   voiceBrands: (state) => get(`/voice/brands?state=${encodeURIComponent(state)}`),
   voiceCounties: (state) => get(`/voice/counties?state=${encodeURIComponent(state)}`),
   voiceCountyLocations: (state, countyFips, city) =>
     get(`/voice/county-locations?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}${city ? `&city=${encodeURIComponent(city)}` : ''}`),
   voiceCountyTowns: (state, countyFips) =>
     get(`/voice/county-towns?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}`),
+  voiceCompetitorsByState: (state) => get(`/voice/competitors-by-state?state=${encodeURIComponent(state)}`),
+  voiceCompetitorsByCounty: (state, countyFips) =>
+    get(`/voice/competitors-by-county?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}`),
 }

@@ -738,16 +738,6 @@ def get_voice_states():
     return _clean(voice_data.state_summary())
 
 
-@app.get("/api/voice/towns")
-def get_voice_towns(state: str):
-    return _clean(voice_data.town_summary(state))
-
-
-@app.get("/api/voice/stores")
-def get_voice_stores(state: str, city: str = None, county_fips: str = None):
-    return _clean(voice_data.store_summary(state, city, county_fips))
-
-
 @app.get("/api/voice/brands")
 def get_voice_brands(state: str):
     return _clean(voice_data.brand_state_summary(state))

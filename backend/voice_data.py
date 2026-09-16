@@ -144,30 +144,6 @@ def competitor_county_summary(state: str, county_fips: str) -> list:
     ]
 
 
-def town_summary(state: str) -> list:
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT city, n_mavis_locations, total_mavis_reviews, n_low_comparability_locations,
-                       avg_mavis_adj_rating, town_delta, avg_comp_benchmark_rating, suppressed
-                FROM voice.town_delta
-                WHERE state = %s
-                ORDER BY town_delta DESC NULLS LAST
-            """, (state,))
-            rows = cur.fetchall()
-    return [
-        {
-            "city": city, "n_mavis_locations": n_locations, "total_mavis_reviews": total_reviews,
-            "n_low_comparability_locations": n_low_comp,
-            "mavis_rating": float(mavis_rating) if mavis_rating is not None else None,
-            "delta": float(delta) if delta is not None else None,
-            "comp_rating": float(comp_rating) if comp_rating is not None else None,
-            "suppressed": suppressed,
-        }
-        for city, n_locations, total_reviews, n_low_comp, mavis_rating, delta, comp_rating, suppressed in rows
-    ]
-
-
 def county_summary(state: str) -> list:
     """Same shape as town_summary(), grouped by county (from the HUD ZIP-COUNTY
     crosswalk backfill) instead of city - the map's state -> county drill."""
@@ -232,9 +208,9 @@ def county_town_summary(state: str, county_fips: str) -> list:
 
 def county_locations(state: str, county_fips: str, city: str = None) -> list:
     """Every rated location (Mavis AND competitor) in one county, optionally
-    narrowed to one town within it - for the map's store-marker view. Unlike
-    store_summary() (Mavis only, joined through location_benchmark), this
-    pulls straight from location_adjusted_ratings so competitor pins show up
+    narrowed to one town within it - for the map's store-marker view and the
+    table's store-level drill. Pulls straight from location_adjusted_ratings
+    (not the Mavis-only location_benchmark) so competitor locations show up
     too. Mavis rows also carry delta/low_comparability (left-joined from
     location_benchmark, NULL for competitors - a competitor has no "delta
     vs its neighbors")."""
@@ -275,33 +251,3 @@ def county_locations(state: str, county_fips: str, city: str = None) -> list:
     ]
 
 
-def store_summary(state: str, city: str = None, county_fips: str = None) -> list:
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT location_name, brand_name, city, state, lat, lng,
-                       mavis_adj_rating, mavis_raw_rating, mavis_n,
-                       comp_benchmark_rating, comp_total_reviews, n_competitors_in_ring,
-                       delta, low_comparability
-                FROM voice.location_benchmark
-                WHERE state = %(state)s
-                  AND (%(city)s::text IS NULL OR city = %(city)s::text)
-                  AND (%(county_fips)s::text IS NULL OR county_fips = %(county_fips)s::text)
-                ORDER BY delta DESC NULLS LAST
-            """, {"state": state, "city": city, "county_fips": county_fips})
-            rows = cur.fetchall()
-    return [
-        {
-            "name": name, "brand": brand, "city": city, "state": state, "lat": float(lat) if lat is not None else None,
-            "lng": float(lng) if lng is not None else None,
-            "mavis_adj_rating": float(mavis_adj) if mavis_adj is not None else None,
-            "mavis_raw_rating": float(mavis_raw) if mavis_raw is not None else None,
-            "mavis_review_count": mavis_n,
-            "comp_benchmark_rating": float(comp_rating) if comp_rating is not None else None,
-            "comp_review_count": comp_reviews, "n_competitors_in_ring": n_ring,
-            "delta": float(delta) if delta is not None else None,
-            "low_comparability": low_comp,
-        }
-        for name, brand, city, state, lat, lng, mavis_adj, mavis_raw, mavis_n,
-            comp_rating, comp_reviews, n_ring, delta, low_comp in rows
-    ]
