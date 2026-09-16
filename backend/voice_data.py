@@ -200,9 +200,11 @@ def county_locations(state: str, county_fips: str, city: str = None) -> list:
                 SELECT lar.location_id, lar.brand_name, lar.family, lar.location_name, lar.city,
                        lar.lat, lar.lng, lar.raw_rating, lar.adj_rating, lar.n,
                        c.website_url,
-                       lb.delta, lb.low_comparability, lb.comp_benchmark_rating, lb.n_competitors_in_ring
+                       lb.delta, lb.low_comparability, lb.comp_benchmark_rating, lb.n_competitors_in_ring,
+                       vl.street, vl.zip
                 FROM voice.location_adjusted_ratings lar
                 JOIN voice.brands vb ON vb.brand_id = lar.brand_id
+                JOIN voice.locations vl ON vl.location_id = lar.location_id
                 LEFT JOIN competitors c ON c.id = vb.competitor_id
                 LEFT JOIN voice.location_benchmark lb ON lb.location_id = lar.location_id
                 WHERE lar.state = %(state)s AND lar.county_fips = %(county_fips)s
@@ -213,6 +215,7 @@ def county_locations(state: str, county_fips: str, city: str = None) -> list:
     return [
         {
             "location_id": location_id, "brand": brand, "family": family, "name": name, "city": city,
+            "street": street, "zip": zip_code,
             "lat": float(lat) if lat is not None else None, "lng": float(lng) if lng is not None else None,
             "raw_rating": float(raw_rating) if raw_rating is not None else None,
             "adj_rating": float(adj_rating) if adj_rating is not None else None,
@@ -224,7 +227,7 @@ def county_locations(state: str, county_fips: str, city: str = None) -> list:
             "n_competitors_in_ring": n_ring,
         }
         for location_id, brand, family, name, city, lat, lng, raw_rating, adj_rating, n,
-            website_url, delta, low_comp, comp_rating, n_ring in rows
+            website_url, delta, low_comp, comp_rating, n_ring, street, zip_code in rows
     ]
 
 

@@ -81,8 +81,10 @@ function Legend({ grayLabel }) {
 
 function locationTooltip(loc) {
   const familyLabel = loc.family === 'mavis' ? 'Mavis' : 'Competitor'
+  const address = [loc.street, loc.city, loc.zip].filter(Boolean).join(', ')
   const lines = [
     `${loc.name} (${loc.brand}) - ${familyLabel}`,
+    address || '(no address on file)',
     `Rating ${loc.raw_rating?.toFixed(2) ?? '—'} (${fmtNum(loc.review_count)} reviews)`,
   ]
   if (loc.family === 'mavis') {
