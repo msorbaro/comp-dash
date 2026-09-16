@@ -5,7 +5,7 @@ import { ComposableMap, Geographies, Geography, Marker } from '@vnedyalk0v/react
 import usStatesTopology from 'us-atlas/states-10m.json'
 import usCountiesTopology from 'us-atlas/counties-10m.json'
 import { api } from '../api'
-import { divergingColor, SLATE_200, SLATE_400, MUTED, INK_TEXT, TEAL_700, fmtNum } from '../styles'
+import { divergingColor, SLATE_200, SLATE_400, MUTED, INK_TEXT, TEAL_700, GREEN, ROSE, MONO, fmtNum } from '../styles'
 
 // Decoded once at module load (not per-render) - topojson-client turns the
 // arc-encoded topology into plain GeoJSON with real [lng,lat] coordinates,
@@ -63,6 +63,60 @@ function Legend({ grayLabel }) {
   )
 }
 
+function locationTooltip(loc) {
+  const familyLabel = loc.family === 'mavis' ? 'Mavis' : 'Competitor'
+  const lines = [
+    `${loc.name} (${loc.brand}) - ${familyLabel}`,
+    `Rating ${loc.raw_rating?.toFixed(2) ?? '—'} (${fmtNum(loc.review_count)} reviews)`,
+  ]
+  if (loc.family === 'mavis') {
+    if (loc.delta === null || loc.delta === undefined) {
+      lines.push('No competitors within 15mi to benchmark against')
+    } else {
+      const sign = loc.delta >= 0 ? '+' : ''
+      lines.push(`${sign}${loc.delta.toFixed(2)} stars vs. competitor benchmark (${loc.comp_benchmark_rating?.toFixed(2)})`)
+      if (loc.low_comparability) lines.push(`Low comparability - only ${loc.n_competitors_in_ring} competitor(s) within 15mi`)
+    }
+  }
+  return lines.join('\n')
+}
+
+// Brand mark + rating badge for one location on the store-level map. Ring
+// color is a plain green/red for Mavis (better/worse than nearby
+// competitors) per spec - not the graduated diverging scale used elsewhere,
+// since at this zoomed-in level the ask is a simple visual verdict per
+// store. Competitor pins get a neutral ring - they have no "delta vs
+// neighbors" of their own.
+function LocationMarker({ loc }) {
+  const [broken, setBroken] = useState(false)
+  const isMavis = loc.family === 'mavis'
+  const ringColor = isMavis
+    ? (loc.delta === null || loc.delta === undefined ? SLATE_400 : loc.delta >= 0 ? GREEN : ROSE)
+    : SLATE_400
+  const showLogo = !!loc.logo_url && !broken
+  const clipId = `voice-loc-clip-${loc.location_id}`
+
+  return (
+    <Marker coordinates={[loc.lng, loc.lat]}>
+      <clipPath id={clipId}>
+        <circle r={9} />
+      </clipPath>
+      <circle r={11.5} fill="#FFFFFF" stroke={ringColor} strokeWidth={2.5} />
+      {showLogo ? (
+        <image href={loc.logo_url} x={-9} y={-9} width={18} height={18} clipPath={`url(#${clipId})`} onError={() => setBroken(true)} />
+      ) : (
+        <text textAnchor="middle" dominantBaseline="central" fontSize={9} fontWeight={700} fill={INK_TEXT}>
+          {loc.brand?.[0] || '?'}
+        </text>
+      )}
+      <text y={23} textAnchor="middle" fontSize={9.5} fontWeight={700} fill={INK_TEXT} fontFamily={MONO}>
+        {loc.raw_rating != null ? loc.raw_rating.toFixed(1) : '—'}
+      </text>
+      <title>{locationTooltip(loc)}</title>
+    </Marker>
+  )
+}
+
 function Crumbs({ items }) {
   return (
     <div style={{ fontSize: 11, color: MUTED, marginBottom: 10 }}>
@@ -84,7 +138,7 @@ export default function VoiceMap({ states }) {
   const [selectedState, setSelectedState] = useState(null) // { code, name }
   const [selectedCounty, setSelectedCounty] = useState(null) // { fips, name }
   const [counties, setCounties] = useState(null)
-  const [stores, setStores] = useState(null)
+  const [locations, setLocations] = useState(null)
   const [error, setError] = useState(null)
 
   const mode = selectedCounty ? 'stores' : selectedState ? 'county' : 'us'
@@ -97,8 +151,8 @@ export default function VoiceMap({ states }) {
 
   useEffect(() => {
     if (!selectedState || !selectedCounty) return
-    setStores(null); setError(null)
-    api.voiceStores(selectedState.code, undefined, selectedCounty.fips).then(setStores).catch((e) => setError(e.message))
+    setLocations(null); setError(null)
+    api.voiceCountyLocations(selectedState.code, selectedCounty.fips).then(setLocations).catch((e) => setError(e.message))
   }, [selectedState, selectedCounty])
 
   const byStateName = useMemo(() => Object.fromEntries(states.map((s) => [s.state_name, s])), [states])
@@ -215,29 +269,27 @@ export default function VoiceMap({ states }) {
               ))
             }
           </Geographies>
-          {(stores || []).map((store, i) => (
-            <Marker key={i} coordinates={[store.lng, store.lat]}>
-              <circle r={7} fill={divergingColor(store.delta)} stroke="#FFFFFF" strokeWidth={1.5}>
-                <title>
-                  {`${store.name} (${store.brand})\n` +
-                    `Rating ${store.mavis_adj_rating?.toFixed(2) ?? '—'} vs. competitor benchmark ${store.comp_benchmark_rating?.toFixed(2) ?? '—'}\n` +
-                    `Delta ${store.delta >= 0 ? '+' : ''}${store.delta?.toFixed(2) ?? '—'} · ${store.mavis_review_count} reviews\n` +
-                    (store.low_comparability ? `Low comparability - only ${store.n_competitors_in_ring} competitor(s) within 15mi` : `${store.n_competitors_in_ring} competitors within 15mi`)}
-                </title>
-              </circle>
-            </Marker>
+          {(locations || []).map((loc) => (
+            <LocationMarker key={loc.location_id} loc={loc} />
           ))}
         </ComposableMap>
       )}
 
-      {mode === 'stores' && !error && stores === null && (
-        <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading stores…</div>
+      {mode === 'stores' && !error && locations === null && (
+        <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading locations…</div>
+      )}
+      {mode === 'stores' && locations !== null && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 6, fontSize: 10.5, color: MUTED }}>
+          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: `2.5px solid ${GREEN}`, marginRight: 5, verticalAlign: 'middle' }} /> Mavis, beating local competitors</span>
+          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: `2.5px solid ${ROSE}`, marginRight: 5, verticalAlign: 'middle' }} /> Mavis, trailing local competitors</span>
+          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: `2.5px solid ${SLATE_400}`, marginRight: 5, verticalAlign: 'middle' }} /> Competitor</span>
+        </div>
       )}
       {mode === 'county' && !error && counties === null && (
         <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading counties…</div>
       )}
 
-      <Legend grayLabel={mode === 'stores' ? 'no competitors within 15mi' : 'insufficient data'} />
+      {mode !== 'stores' && <Legend grayLabel="insufficient data" />}
     </div>
   )
 }

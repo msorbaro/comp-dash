@@ -41,4 +41,6 @@ export const api = {
     get(`/voice/stores?state=${encodeURIComponent(state)}${city ? `&city=${encodeURIComponent(city)}` : ''}${countyFips ? `&county_fips=${encodeURIComponent(countyFips)}` : ''}`),
   voiceBrands: (state) => get(`/voice/brands?state=${encodeURIComponent(state)}`),
   voiceCounties: (state) => get(`/voice/counties?state=${encodeURIComponent(state)}`),
+  voiceCountyLocations: (state, countyFips) =>
+    get(`/voice/county-locations?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}`),
 }

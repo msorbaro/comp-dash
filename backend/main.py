@@ -758,6 +758,11 @@ def get_voice_counties(state: str):
     return _clean(voice_data.county_summary(state))
 
 
+@app.get("/api/voice/county-locations")
+def get_voice_county_locations(state: str, county_fips: str):
+    return _clean(voice_data.county_locations(state, county_fips))
+
+
 def _warm_cache_loop():
     # On a CPU-throttled free-tier host, the expensive pages (Landscape,
     # the "Our Brands" rollup, each own brand) are too slow to compute

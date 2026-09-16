@@ -5,13 +5,34 @@ computed view - no Python-side recomputation of the metrics themselves, so
 the API stays an honest pass-through of the same SQL the user can run
 directly in Supabase Studio, not a second implementation of the math.
 """
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from urllib.parse import urlparse
+
 from db.connection import get_conn
 from voice.us_states import STATE_NAME_BY_CODE
+
+# Mirrors backend/main.py's LOGO_OVERRIDES - same brand, same broken favicon.
+# Duplicated rather than imported to avoid a circular import (main.py already
+# imports this module).
+LOGO_OVERRIDES = {"Tire Kingdom": None}
+
+
+def _favicon_url(brand_name: str, website_url: str | None) -> str | None:
+    """Same derivation as main.py's _logo_url - there's no logo asset
+    pipeline in this app, so a brand mark comes from its own website favicon
+    via Google's public favicon service (no API key, no scraping)."""
+    if brand_name in LOGO_OVERRIDES:
+        return LOGO_OVERRIDES[brand_name]
+    if not website_url:
+        return None
+    domain = urlparse(website_url).netloc
+    return f"https://www.google.com/s2/favicons?sz=64&domain={domain}" if domain else None
 
 
 def state_summary() -> list:
@@ -126,6 +147,46 @@ def county_summary(state: str) -> list:
             "suppressed": suppressed,
         }
         for fips, name, n_locations, total_reviews, n_low_comp, mavis_rating, delta, comp_rating, suppressed in rows
+    ]
+
+
+def county_locations(state: str, county_fips: str) -> list:
+    """Every rated location (Mavis AND competitor) in one county, for the
+    map's store-marker view - unlike store_summary() (Mavis only, joined
+    through location_benchmark), this pulls straight from
+    location_adjusted_ratings so competitor pins show up too. Mavis rows
+    also carry delta/low_comparability (left-joined from location_benchmark,
+    NULL for competitors - a competitor has no "delta vs its neighbors")."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT lar.location_id, lar.brand_name, lar.family, lar.location_name,
+                       lar.lat, lar.lng, lar.raw_rating, lar.adj_rating, lar.n,
+                       c.website_url,
+                       lb.delta, lb.low_comparability, lb.comp_benchmark_rating, lb.n_competitors_in_ring
+                FROM voice.location_adjusted_ratings lar
+                JOIN voice.brands vb ON vb.brand_id = lar.brand_id
+                LEFT JOIN competitors c ON c.id = vb.competitor_id
+                LEFT JOIN voice.location_benchmark lb ON lb.location_id = lar.location_id
+                WHERE lar.state = %(state)s AND lar.county_fips = %(county_fips)s
+                ORDER BY lar.family, lar.brand_name, lar.location_name
+            """, {"state": state, "county_fips": county_fips})
+            rows = cur.fetchall()
+    return [
+        {
+            "location_id": location_id, "brand": brand, "family": family, "name": name,
+            "lat": float(lat) if lat is not None else None, "lng": float(lng) if lng is not None else None,
+            "raw_rating": float(raw_rating) if raw_rating is not None else None,
+            "adj_rating": float(adj_rating) if adj_rating is not None else None,
+            "review_count": n,
+            "logo_url": _favicon_url(brand, website_url),
+            "delta": float(delta) if delta is not None else None,
+            "low_comparability": low_comp,
+            "comp_benchmark_rating": float(comp_rating) if comp_rating is not None else None,
+            "n_competitors_in_ring": n_ring,
+        }
+        for location_id, brand, family, name, lat, lng, raw_rating, adj_rating, n,
+            website_url, delta, low_comp, comp_rating, n_ring in rows
     ]
 
 
