@@ -167,49 +167,44 @@ def main_brand_counties(brand_id: int, state: str) -> list:
     return _rollup_counties(_brand_town_ratings(brand_id, state))
 
 
-# State-level thresholds for the weighted-average rating gap (see
-# main_brand_states below) - not the county rollup's tier-counting bands.
-# Tunable; picked to require a real, consistent edge to read as green
-# rather than a pile of barely-positive towns.
-_STATE_GAP_GREEN = 0.15
-_STATE_GAP_RED = -0.1
+# Points per county tier for the state-level score (see main_brand_states)
+# and the score bands that map back to a color. Tunable.
+_COUNTY_POINTS = {"light_green": 1.0, "dark_green": 0.8, "yellow": 0.5, "red": 0.0}
+
+
+def _score_tier(score):
+    if score >= 0.9:
+        return "light_green"
+    if score >= 0.75:
+        return "dark_green"
+    if score >= 0.5:
+        return "yellow"
+    return "red"
 
 
 def main_brand_states(brand_id: int) -> list:
-    """State-level color: NOT a vote/rollup over county tiers (that
-    overstated things - enough barely-positive "yellow" towns could outvote
-    real red ones). Instead, the brand's own weighted-average rating gap
-    vs. every other tracked location, across every town it competes in,
-    weighted by review volume - the same idea the original Mavis-vs-
-    competitor delta already used, applied per-brand. Towns where the brand
-    has zero competition are excluded (no gap to measure, so they can't
-    pull the average toward "green" for free). Scoped to the state view
-    only, per instruction - main_brand_counties() keeps the tier rollup."""
+    """State-level color: a points average over its counties' own tiers
+    (light green = 1, dark green = 0.8, yellow = 0.5, red = 0), divided by
+    the county count, then bucketed - light green >=0.9, dark green >=0.75,
+    yellow >=0.5, red otherwise. Scoped to the state view only, per
+    instruction - main_brand_counties() keeps computing the county tiers
+    this is built from."""
     all_towns = _brand_town_ratings(brand_id, state=None)
+    counties = _rollup_counties(all_towns)
     by_state = {}
-    for t in all_towns:
-        by_state.setdefault(t["state"], []).append(t)
+    for c in counties:
+        by_state.setdefault(c["state"], []).append(c)
 
     out = []
-    for state, towns in by_state.items():
-        competed = [t for t in towns if t["avg_other_rating"] is not None]
-        total_n = sum(t["brand_n"] for t in competed)
-        avg_gap = (
-            sum(t["brand_n"] * (t["brand_rating"] - t["avg_other_rating"]) for t in competed) / total_n
-            if total_n else None
-        )
-        if avg_gap is None:
-            tier = "green"  # no competition anywhere tracked - nothing to lose to
-        elif avg_gap > _STATE_GAP_GREEN:
-            tier = "green"
-        elif avg_gap < _STATE_GAP_RED:
-            tier = "red"
-        else:
-            tier = "yellow"
+    for state, state_counties in by_state.items():
+        n = len(state_counties)
+        score = sum(_COUNTY_POINTS[c["tier"]] for c in state_counties) / n
+        tier_counts = {}
+        for c in state_counties:
+            tier_counts[c["tier"]] = tier_counts.get(c["tier"], 0) + 1
         out.append({
-            "state": state, "n_towns": len(towns), "n_towns_with_competition": len(competed),
-            "n_towns_uncontested": len(towns) - len(competed),
-            "avg_gap": avg_gap, "tier": tier,
+            "state": state, "n_counties": n, "score": score,
+            "tier_counts": tier_counts, "tier": _score_tier(score),
         })
     return out
 
