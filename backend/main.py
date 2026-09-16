@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import data_loaders as dl
@@ -855,4 +855,17 @@ threading.Thread(target=_warm_cache_loop, daemon=True).start()
 # is the whole deployable app.
 _dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if _dist.exists():
+    # The React app is client-side routed (App.jsx reads/writes these paths
+    # via the History API, no router library) - a direct/refreshed request
+    # to one of these URLs would otherwise 404 inside StaticFiles(html=True),
+    # which only auto-serves index.html for "/" and real directories, not
+    # arbitrary unknown paths. Each of these just hands back the same built
+    # index.html; the client JS then reads location.pathname to pick the screen.
+    for _spa_path in ("/brand", "/category", "/compare", "/voice"):
+        app.add_api_route(
+            _spa_path,
+            lambda: FileResponse(str(_dist / "index.html")),
+            methods=["GET"],
+            include_in_schema=False,
+        )
     app.mount("/", StaticFiles(directory=str(_dist), html=True), name="frontend")

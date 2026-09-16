@@ -10,9 +10,16 @@ import { Shimmer } from './components/Widgets'
 import { api } from './api'
 import { CANVAS, MUTED } from './styles'
 
+// Plain URL <-> screen sync via the History API - no router library, matching
+// this app's dependency-light convention. 'channel' has no route of its own
+// (it's a sub-view of Brand reached by clicking a channel card, not a
+// top-level destination) so it maps back to /brand.
+const PATH_FOR_SCREEN = { landscape: '/', brand: '/brand', channel: '/brand', category: '/category', compare: '/compare', voice: '/voice' }
+const SCREEN_FOR_PATH = { '/': 'landscape', '/brand': 'brand', '/category': 'category', '/compare': 'compare', '/voice': 'voice' }
+
 export default function App() {
   const [meta, setMeta] = useState(null)
-  const [screen, setScreen] = useState('landscape')
+  const [screen, setScreen] = useState(() => SCREEN_FOR_PATH[window.location.pathname] || 'landscape')
   const [brand, setBrand] = useState(null)
   const [channelId, setChannelId] = useState(null)
   const [channelTypeFilter, setChannelTypeFilter] = useState(null)
@@ -31,6 +38,15 @@ export default function App() {
     })
   }, [])
 
+  // Back/forward buttons - bring the screen back in sync with whatever path
+  // the browser just navigated to (goto()/openChannel() below handle the
+  // other direction, screen change -> pushState).
+  useEffect(() => {
+    const onPopState = () => setScreen(SCREEN_FOR_PATH[window.location.pathname] || 'landscape')
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
   if (!meta) return (
     <div style={{ minHeight: '100vh', background: CANVAS, padding: '92px 32px 80px' }}>
       <div style={{ maxWidth: 1440, margin: '0 auto' }}>
@@ -46,11 +62,15 @@ export default function App() {
     // so jumping there from anywhere else is a sensible starting comparison.
     if (nextScreen === 'compare' && screen !== 'compare') setCompareA(brand)
     setScreen(nextScreen)
+    const path = PATH_FOR_SCREEN[nextScreen] || '/'
+    if (window.location.pathname !== path) window.history.pushState({}, '', path)
     window.scrollTo(0, 0)
   }
   const openBrand = (name) => { setBrand(name); goto('brand') }
   const openChannel = (id, typeFilter = null) => {
-    setChannelId(id); setChannelTypeFilter(typeFilter); setScreen('channel'); window.scrollTo(0, 0)
+    setChannelId(id); setChannelTypeFilter(typeFilter); setScreen('channel')
+    if (window.location.pathname !== '/brand') window.history.pushState({}, '', '/brand')
+    window.scrollTo(0, 0)
   }
   const openCategory = (name) => { setCategory(name); goto('category') }
 
