@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 import data_loaders as dl
 import signal_data as sd
 import synthesize
+import voice_data
 
 app = FastAPI(title="Brand Signal API")
 app.add_middleware(
@@ -725,6 +726,26 @@ def refresh_cache():
     with _page_cache_lock:
         _page_cache.clear()
     return {"status": "ok"}
+
+
+# Customer Voice (Phases 1-2-4 only for now - review text/theme coding and
+# the Complaints view come later). These read straight off the voice schema's
+# materialized views (db/voice_metrics.sql) - cheap direct queries, not
+# expensive pandas aggregation like the messaging side, so no _cached_page
+# wrapper is needed.
+@app.get("/api/voice/states")
+def get_voice_states():
+    return _clean(voice_data.state_summary())
+
+
+@app.get("/api/voice/towns")
+def get_voice_towns(state: str):
+    return _clean(voice_data.town_summary(state))
+
+
+@app.get("/api/voice/stores")
+def get_voice_stores(state: str, city: str = None):
+    return _clean(voice_data.store_summary(state, city))
 
 
 def _warm_cache_loop():
