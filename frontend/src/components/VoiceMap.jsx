@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { geoMercator, geoBounds } from 'd3-geo'
 import { feature } from 'topojson-client'
-import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from '@vnedyalk0v/react19-simple-maps'
+import { ComposableMap, Geographies, Geography, ZoomableGroup } from '@vnedyalk0v/react19-simple-maps'
 import usStatesTopology from 'us-atlas/states-10m.json'
 import usCountiesTopology from 'us-atlas/counties-10m.json'
 import { api } from '../api'
+import VoiceStoreMap from './VoiceStoreMap'
 import { divergingColor, SLATE_200, SLATE_400, SLATE_600, MUTED, INK_TEXT, TEAL_700, DEEP_TEAL, GREEN, ROSE, MONO, fmtNum } from '../styles'
 
 // Decoded once at module load (not per-render) - topojson-client turns the
@@ -86,62 +87,6 @@ function Legend({ grayLabel }) {
       <Swatch color={divergingColor(0.5)} label="+0.5 or better" />
       <Swatch color={SLATE_200} label={grayLabel} />
     </div>
-  )
-}
-
-function locationTooltip(loc) {
-  const familyLabel = loc.family === 'mavis' ? 'Mavis' : 'Competitor'
-  const address = [loc.street, loc.city, loc.zip].filter(Boolean).join(', ')
-  const lines = [
-    `${loc.name} (${loc.brand}) - ${familyLabel}`,
-    address || '(no address on file)',
-    `Rating ${loc.raw_rating?.toFixed(2) ?? '—'} (${fmtNum(loc.review_count)} reviews)`,
-  ]
-  if (loc.family === 'mavis') {
-    if (loc.delta === null || loc.delta === undefined) {
-      lines.push('No competitors within 15mi to benchmark against')
-    } else {
-      const sign = loc.delta >= 0 ? '+' : ''
-      lines.push(`${sign}${loc.delta.toFixed(2)} stars vs. competitor benchmark (${loc.comp_benchmark_rating?.toFixed(2)})`)
-      if (loc.low_comparability) lines.push(`Low comparability - only ${loc.n_competitors_in_ring} competitor(s) within 15mi`)
-    }
-  }
-  return lines.join('\n')
-}
-
-// Brand mark + rating badge for one location on the store-level map. Ring
-// color is a plain green/red for Mavis (better/worse than nearby
-// competitors) per spec - not the graduated diverging scale used elsewhere,
-// since at this zoomed-in level the ask is a simple visual verdict per
-// store. Competitor pins get a neutral ring - they have no "delta vs
-// neighbors" of their own.
-function LocationMarker({ loc }) {
-  const [broken, setBroken] = useState(false)
-  const isMavis = loc.family === 'mavis'
-  const ringColor = isMavis
-    ? (loc.delta === null || loc.delta === undefined ? SLATE_400 : loc.delta >= 0 ? GREEN : ROSE)
-    : SLATE_400
-  const showLogo = !!loc.logo_url && !broken
-  const clipId = `voice-loc-clip-${loc.location_id}`
-
-  return (
-    <Marker coordinates={[loc.lng, loc.lat]}>
-      <clipPath id={clipId}>
-        <circle r={9} />
-      </clipPath>
-      <circle r={11.5} fill="#FFFFFF" stroke={ringColor} strokeWidth={2.5} />
-      {showLogo ? (
-        <image href={loc.logo_url} x={-9} y={-9} width={18} height={18} clipPath={`url(#${clipId})`} onError={() => setBroken(true)} />
-      ) : (
-        <text textAnchor="middle" dominantBaseline="central" fontSize={9} fontWeight={700} fill={INK_TEXT}>
-          {loc.brand?.[0] || '?'}
-        </text>
-      )}
-      <text y={23} textAnchor="middle" fontSize={9.5} fontWeight={700} fill={INK_TEXT} fontFamily={MONO}>
-        {loc.raw_rating != null ? loc.raw_rating.toFixed(1) : '—'}
-      </text>
-      <title>{locationTooltip(loc)}</title>
-    </Marker>
   )
 }
 
@@ -293,18 +238,9 @@ export default function VoiceMap({ states }) {
     const t = byTownCity[townChoice.city]
     return t?.geometry ? { type: 'Feature', id: t.city, properties: { name: t.city }, geometry: t.geometry } : null
   }, [townChoice, byTownCity])
-  const storesBackgroundCollection = useMemo(
-    () => (selectedTownFeature ? { type: 'FeatureCollection', features: [selectedTownFeature] } : selectedCountyFeatureCollection),
-    [selectedTownFeature, selectedCountyFeatureCollection]
-  )
-  const storesFitProjection = useMemo(
-    () => (selectedTownFeature ? fitProjection([selectedTownFeature], 40) : storesProjection),
-    [selectedTownFeature, storesProjection]
-  )
-  const storesCenter = useMemo(
-    () => centroidOf(selectedTownFeature || selectedCountyFeature || { type: 'Point', coordinates: [-98, 39] }),
-    [selectedTownFeature, selectedCountyFeature]
-  )
+  // Outline shown under the real street map (VoiceStoreMap) - the chosen
+  // town's own boundary when it has one, else the whole county's.
+  const boundaryGeometry = selectedTownFeature?.geometry || selectedCountyFeature?.geometry || null
   const townCenter = useMemo(
     () => centroidOf(selectedCountyFeature || { type: 'Point', coordinates: [-98, 39] }),
     [selectedCountyFeature]
@@ -333,10 +269,11 @@ export default function VoiceMap({ states }) {
                   <Geography
                     key={geo.id}
                     geography={geo}
-                    title={areaTooltip(geo.properties?.name, s)}
                     onClick={() => { if (visible) chooseState({ code: s.state, name: s.state_name }) }}
                     style={regionStyle(fill, visible)}
-                  />
+                  >
+                    <title>{areaTooltip(geo.properties?.name, s)}</title>
+                  </Geography>
                 )
               })
             }
@@ -356,10 +293,11 @@ export default function VoiceMap({ states }) {
                   <Geography
                     key={geo.id}
                     geography={geo}
-                    title={areaTooltip(geo.properties?.name ? `${geo.properties.name} County` : geo.id, c)}
                     onClick={() => { if (c) chooseCounty({ fips: geo.id, name: geo.properties?.name || c.county_name }) }}
                     style={regionStyle(fill, !!c)}
-                  />
+                  >
+                    <title>{areaTooltip(geo.properties?.name ? `${geo.properties.name} County` : geo.id, c)}</title>
+                  </Geography>
                 )
               })
             }
@@ -399,10 +337,11 @@ export default function VoiceMap({ states }) {
                       <Geography
                         key={geo.id}
                         geography={geo}
-                        title={areaTooltip(geo.properties?.name, t)}
                         onClick={() => setTownChoice({ city: geo.properties?.name })}
                         style={regionStyle(fill, true)}
-                      />
+                      >
+                        <title>{areaTooltip(geo.properties?.name, t)}</title>
+                      </Geography>
                     )
                   })
                 }
@@ -420,35 +359,15 @@ export default function VoiceMap({ states }) {
         </>
       )}
 
-      {mode === 'stores' && (
-        <ComposableMap projection={storesFitProjection || 'geoMercator'} width={WIDTH} height={HEIGHT} style={{ width: '100%', height: 'auto' }}>
-          <ZoomableGroup center={storesCenter} zoom={1} minZoom={1} maxZoom={16}>
-            <Geographies geography={storesBackgroundCollection}>
-              {({ geographies }) =>
-                geographies.map((geo) => (
-                  <Geography key={geo.id} geography={geo} style={regionStyle('#F6F8FA', false)} />
-                ))
-              }
-            </Geographies>
-            {(locations || []).map((loc) => (
-              <LocationMarker key={loc.location_id} loc={loc} />
-            ))}
-          </ZoomableGroup>
-        </ComposableMap>
-      )}
-      {mode === 'stores' && locations !== null && (
-        <div style={{ textAlign: 'center', fontSize: 10, color: MUTED, marginTop: 4 }}>Scroll to zoom, drag to pan</div>
-      )}
-
       {mode === 'stores' && !error && locations === null && (
         <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading locations…</div>
       )}
       {mode === 'stores' && locations !== null && (
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 6, fontSize: 10.5, color: MUTED, flexWrap: 'wrap' }}>
-          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: `2.5px solid ${GREEN}`, marginRight: 5, verticalAlign: 'middle' }} /> Mavis, beating local competitors</span>
-          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: `2.5px solid ${ROSE}`, marginRight: 5, verticalAlign: 'middle' }} /> Mavis, trailing local competitors</span>
-          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: `2.5px solid ${SLATE_400}`, marginRight: 5, verticalAlign: 'middle' }} /> Competitor</span>
-        </div>
+        <VoiceStoreMap
+          locations={locations}
+          boundaryGeometry={boundaryGeometry}
+          areaKey={`${selectedCounty?.fips}-${townChoice?.city || 'all'}`}
+        />
       )}
       {mode === 'county' && !error && counties === null && (
         <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading counties…</div>
