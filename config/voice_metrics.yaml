@@ -1,0 +1,19 @@
+# Customer Voice metrics layer (Phase 4) - configurable per the user's spec
+# ("Make the radius configurable", "Set m = 50 and make it configurable").
+# Materialized views can't take runtime parameters, so "configurable" here
+# means: change a value here, then run `python -m scripts.refresh_voice_metrics`
+# to rebuild the views with the new value.
+
+# Bayesian shrinkage prior strength - at n=shrinkage_m, a store's own rating
+# gets half the weight; at n=10x that, ~91%.
+shrinkage_m: 50
+
+# Competitor benchmark ring radius, in miles (haversine).
+ring_radius_miles: 15
+
+# A state renders gray ("insufficient data") instead of a color if it has
+# fewer than this many Mavis locations...
+min_locations_for_state: 5
+
+# ...or fewer than this many total Mavis reviews.
+min_reviews_for_state: 250
