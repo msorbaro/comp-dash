@@ -35,6 +35,153 @@ def _favicon_url(brand_name: str, website_url: str | None) -> str | None:
     return f"https://www.google.com/s2/favicons?sz=64&domain={domain}" if domain else None
 
 
+def list_brands() -> list:
+    """Every tracked brand (Mavis banners and named competitors alike), for
+    the map's "set a main brand" selector."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT brand_id, name, family FROM voice.brands ORDER BY family, name")
+            rows = cur.fetchall()
+    return [{"brand_id": bid, "name": name, "family": family} for bid, name, family in rows]
+
+
+def _tier(brand_rating, avg_other, max_other):
+    """green: beats every other location in the town (or there's no
+    competition at all to lose to). yellow: beats the town average but not
+    the best. red: at or below the town average."""
+    if max_other is None:
+        return "green"
+    if brand_rating > max_other:
+        return "green"
+    if brand_rating > avg_other:
+        return "yellow"
+    return "red"
+
+
+def _area_tier(pct_green):
+    """County-from-towns and state-from-counties share this same tiering,
+    per spec: dark green >=90%, light green >=80%, yellow 50-80%, red under."""
+    if pct_green >= 0.9:
+        return "dark_green"
+    if pct_green >= 0.8:
+        return "light_green"
+    if pct_green >= 0.5:
+        return "yellow"
+    return "red"
+
+
+def _brand_town_ratings(brand_id: int, state: str = None) -> list:
+    """One row per town where the given brand has at least one rated
+    location - the brand's own weighted-average adj_rating there, and the
+    average/best adj_rating of every OTHER brand's location in that same
+    town. Everything needed to classify green/yellow/red per spec ("does
+    that brand's location beat everyone else / the average / neither").
+    A single query regardless of how many states, so main_brand_state_tiers()
+    below doesn't need one DB round-trip per state."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                WITH brand_locs AS (
+                    SELECT state, county_fips, county_name, city, n, adj_rating
+                    FROM voice.location_adjusted_ratings
+                    WHERE brand_id = %(brand_id)s AND county_fips IS NOT NULL
+                      AND (%(state)s::text IS NULL OR state = %(state)s::text)
+                ),
+                brand_town AS (
+                    SELECT state, county_fips, county_name, city,
+                           sum(n * adj_rating) / NULLIF(sum(n), 0) AS brand_rating,
+                           sum(n) AS brand_n, count(*) AS n_brand_locations
+                    FROM brand_locs
+                    GROUP BY state, county_fips, county_name, city
+                ),
+                other_agg AS (
+                    SELECT lar.state, lar.county_fips, lar.city,
+                           avg(lar.adj_rating) AS avg_other_rating,
+                           max(lar.adj_rating) AS max_other_rating,
+                           count(*) AS n_other_locations
+                    FROM voice.location_adjusted_ratings lar
+                    JOIN (SELECT DISTINCT state, county_fips, city FROM brand_locs) bt
+                        ON bt.state = lar.state AND bt.county_fips = lar.county_fips AND bt.city = lar.city
+                    WHERE lar.brand_id != %(brand_id)s
+                    GROUP BY lar.state, lar.county_fips, lar.city
+                )
+                SELECT bt.state, bt.county_fips, bt.county_name, bt.city,
+                       bt.brand_rating, bt.brand_n, bt.n_brand_locations,
+                       o.avg_other_rating, o.max_other_rating, o.n_other_locations
+                FROM brand_town bt
+                LEFT JOIN other_agg o ON o.state = bt.state AND o.county_fips = bt.county_fips AND o.city = bt.city
+            """, {"brand_id": brand_id, "state": state})
+            rows = cur.fetchall()
+    out = []
+    for state_, fips, county_name, city, brand_rating, brand_n, n_brand_locs, avg_other, max_other, n_other in rows:
+        if brand_rating is None:
+            continue
+        brand_rating = float(brand_rating)
+        avg_other = float(avg_other) if avg_other is not None else None
+        max_other = float(max_other) if max_other is not None else None
+        out.append({
+            "state": state_, "county_fips": fips, "county_name": county_name, "city": city,
+            "brand_rating": brand_rating, "brand_n": brand_n, "n_brand_locations": n_brand_locs,
+            "avg_other_rating": avg_other, "max_other_rating": max_other, "n_other_locations": n_other or 0,
+            "tier": _tier(brand_rating, avg_other, max_other),
+        })
+    return out
+
+
+def main_brand_towns(brand_id: int, state: str, county_fips: str = None) -> list:
+    """Town-level green/yellow/red for one brand, in one state (optionally
+    narrowed to one county) - the map's "main brand" town view."""
+    rows = _brand_town_ratings(brand_id, state)
+    if county_fips:
+        rows = [r for r in rows if r["county_fips"] == county_fips]
+    return rows
+
+
+def _rollup_counties(town_rows: list) -> list:
+    by_county = {}
+    for t in town_rows:
+        key = (t["state"], t["county_fips"], t["county_name"])
+        by_county.setdefault(key, []).append(t)
+    out = []
+    for (state, fips, name), towns in by_county.items():
+        n_green = sum(1 for t in towns if t["tier"] == "green")
+        pct_green = n_green / len(towns)
+        out.append({
+            "state": state, "county_fips": fips, "county_name": name,
+            "n_towns": len(towns), "n_green": n_green, "pct_green": pct_green,
+            "tier": _area_tier(pct_green),
+        })
+    return out
+
+
+def main_brand_counties(brand_id: int, state: str) -> list:
+    """County-level tier for one brand, in one state - rolled up from
+    main_brand_towns() per spec's dark/light green - yellow - red bands."""
+    return _rollup_counties(_brand_town_ratings(brand_id, state))
+
+
+def main_brand_states(brand_id: int) -> list:
+    """State-level tier for one brand, across every state it has a location
+    in - rolled up from counties the same way counties roll up from towns
+    (per spec: "the states should use the same tiered logic to roll up the
+    counties"), counting a county as "green" for this purpose if it's
+    either shade of green."""
+    all_towns = _brand_town_ratings(brand_id, state=None)
+    counties = _rollup_counties(all_towns)
+    by_state = {}
+    for c in counties:
+        by_state.setdefault(c["state"], []).append(c)
+    out = []
+    for state, state_counties in by_state.items():
+        n_green = sum(1 for c in state_counties if c["tier"] in ("dark_green", "light_green"))
+        pct_green = n_green / len(state_counties)
+        out.append({
+            "state": state, "n_counties": len(state_counties), "n_green": n_green, "pct_green": pct_green,
+            "tier": _area_tier(pct_green),
+        })
+    return out
+
+
 def state_summary() -> list:
     """All 50 states (+ DC), left-joined to voice.state_delta so states
     with no pilot data at all come back with null fields - distinguished

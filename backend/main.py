@@ -768,6 +768,26 @@ def get_voice_competitors_by_county(state: str, county_fips: str):
     return _clean(voice_data.competitor_county_summary(state, county_fips))
 
 
+@app.get("/api/voice/brand-options")
+def get_voice_brand_options():
+    return _clean(voice_data.list_brands())
+
+
+@app.get("/api/voice/main-brand/states")
+def get_main_brand_states(brand_id: int):
+    return _clean(voice_data.main_brand_states(brand_id))
+
+
+@app.get("/api/voice/main-brand/counties")
+def get_main_brand_counties(brand_id: int, state: str):
+    return _clean(voice_data.main_brand_counties(brand_id, state))
+
+
+@app.get("/api/voice/main-brand/towns")
+def get_main_brand_towns(brand_id: int, state: str, county_fips: str = None):
+    return _clean(voice_data.main_brand_towns(brand_id, state, county_fips))
+
+
 def _warm_cache_loop():
     # On a CPU-throttled free-tier host, the expensive pages (Landscape,
     # the "Our Brands" rollup, each own brand) are too slow to compute
