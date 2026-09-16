@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { geoMercator } from 'd3-geo'
+import { geoMercator, geoBounds } from 'd3-geo'
 import { feature } from 'topojson-client'
-import { ComposableMap, Geographies, Geography, Marker } from '@vnedyalk0v/react19-simple-maps'
+import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from '@vnedyalk0v/react19-simple-maps'
 import usStatesTopology from 'us-atlas/states-10m.json'
 import usCountiesTopology from 'us-atlas/counties-10m.json'
 import { api } from '../api'
@@ -24,6 +24,16 @@ const HEIGHT = 520
 function fitProjection(features, padding = 24) {
   const fc = { type: 'FeatureCollection', features }
   return geoMercator().fitExtent([[padding, padding], [WIDTH - padding, HEIGHT - padding]], fc)
+}
+
+// ZoomableGroup's `center` is a geographic [lng,lat] point (it runs the
+// projection on it internally to compute the pixel offset), not a pixel
+// coordinate - the bounding-box midpoint of whatever fitProjection() just
+// fit the view to keeps the initial zoomed-in view visually unchanged
+// before the user actually drags/scrolls.
+function centroidOf(feature) {
+  const [[minLng, minLat], [maxLng, maxLat]] = geoBounds(feature)
+  return [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
 }
 
 // Geography needs a concrete style object for every interaction state it can
@@ -291,6 +301,14 @@ export default function VoiceMap({ states }) {
     () => (selectedTownFeature ? fitProjection([selectedTownFeature], 40) : storesProjection),
     [selectedTownFeature, storesProjection]
   )
+  const storesCenter = useMemo(
+    () => centroidOf(selectedTownFeature || selectedCountyFeature || { type: 'Point', coordinates: [-98, 39] }),
+    [selectedTownFeature, selectedCountyFeature]
+  )
+  const townCenter = useMemo(
+    () => centroidOf(selectedCountyFeature || { type: 'Point', coordinates: [-98, 39] }),
+    [selectedCountyFeature]
+  )
 
   const crumbs = [{ label: 'All states', onClick: mode !== 'us' ? () => chooseState(null) : null }]
   if (selectedState) crumbs.push({ label: selectedState.name, onClick: mode !== 'county' ? () => chooseCounty(null) : null })
@@ -360,46 +378,66 @@ export default function VoiceMap({ states }) {
             </span>
           </div>
           <ComposableMap projection={storesProjection || 'geoMercator'} width={WIDTH} height={HEIGHT} style={{ width: '100%', height: 'auto' }}>
-            <Geographies geography={townFeatureCollection}>
-              {({ geographies }) =>
-                geographies.map((geo) => {
-                  const t = byTownCity[geo.properties?.name]
-                  const visible = !!(t && !t.suppressed)
-                  const fill = visible ? divergingColor(t.delta) : SLATE_200
-                  return (
-                    <Geography
-                      key={geo.id}
-                      geography={geo}
-                      title={areaTooltip(geo.properties?.name, t)}
-                      onClick={() => setTownChoice({ city: geo.properties?.name })}
-                      style={regionStyle(fill, true)}
-                    />
-                  )
-                })
-              }
-            </Geographies>
+            <ZoomableGroup center={townCenter} zoom={1} minZoom={1} maxZoom={12}>
+              {/* The whole county, in gray, drawn first so any part of it not
+                  covered by a town below still reads as "part of the county,
+                  just not in the analysis" rather than empty white space. */}
+              <Geographies geography={selectedCountyFeatureCollection}>
+                {({ geographies }) =>
+                  geographies.map((geo) => (
+                    <Geography key={geo.id} geography={geo} style={regionStyle(SLATE_200, false)} />
+                  ))
+                }
+              </Geographies>
+              <Geographies geography={townFeatureCollection}>
+                {({ geographies }) =>
+                  geographies.map((geo) => {
+                    const t = byTownCity[geo.properties?.name]
+                    const visible = !!(t && !t.suppressed)
+                    const fill = visible ? divergingColor(t.delta) : SLATE_200
+                    return (
+                      <Geography
+                        key={geo.id}
+                        geography={geo}
+                        title={areaTooltip(geo.properties?.name, t)}
+                        onClick={() => setTownChoice({ city: geo.properties?.name })}
+                        style={regionStyle(fill, true)}
+                      />
+                    )
+                  })
+                }
+              </Geographies>
+            </ZoomableGroup>
           </ComposableMap>
           {!error && towns === null && (
             <div style={{ textAlign: 'center', padding: 12, color: MUTED, fontSize: 12 }}>Loading towns…</div>
           )}
           {towns && <UnmappedTownList towns={unmappedTowns} onSelectTown={(city) => setTownChoice({ city })} />}
-          {towns && <Legend grayLabel="insufficient data" />}
+          {towns && <Legend grayLabel="insufficient data / not in analysis" />}
+          {towns && (
+            <div style={{ textAlign: 'center', fontSize: 10, color: MUTED, marginTop: 4 }}>Scroll to zoom, drag to pan</div>
+          )}
         </>
       )}
 
       {mode === 'stores' && (
         <ComposableMap projection={storesFitProjection || 'geoMercator'} width={WIDTH} height={HEIGHT} style={{ width: '100%', height: 'auto' }}>
-          <Geographies geography={storesBackgroundCollection}>
-            {({ geographies }) =>
-              geographies.map((geo) => (
-                <Geography key={geo.id} geography={geo} style={regionStyle('#F6F8FA', false)} />
-              ))
-            }
-          </Geographies>
-          {(locations || []).map((loc) => (
-            <LocationMarker key={loc.location_id} loc={loc} />
-          ))}
+          <ZoomableGroup center={storesCenter} zoom={1} minZoom={1} maxZoom={16}>
+            <Geographies geography={storesBackgroundCollection}>
+              {({ geographies }) =>
+                geographies.map((geo) => (
+                  <Geography key={geo.id} geography={geo} style={regionStyle('#F6F8FA', false)} />
+                ))
+              }
+            </Geographies>
+            {(locations || []).map((loc) => (
+              <LocationMarker key={loc.location_id} loc={loc} />
+            ))}
+          </ZoomableGroup>
         </ComposableMap>
+      )}
+      {mode === 'stores' && locations !== null && (
+        <div style={{ textAlign: 'center', fontSize: 10, color: MUTED, marginTop: 4 }}>Scroll to zoom, drag to pan</div>
       )}
 
       {mode === 'stores' && !error && locations === null && (
