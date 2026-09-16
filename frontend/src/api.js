@@ -38,4 +38,5 @@ export const api = {
   voiceStates: () => get('/voice/states'),
   voiceTowns: (state) => get(`/voice/towns?state=${encodeURIComponent(state)}`),
   voiceStores: (state, city) => get(`/voice/stores?state=${encodeURIComponent(state)}${city ? `&city=${encodeURIComponent(city)}` : ''}`),
+  voiceBrands: (state) => get(`/voice/brands?state=${encodeURIComponent(state)}`),
 }

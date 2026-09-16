@@ -17,3 +17,10 @@ min_locations_for_state: 5
 
 # ...or fewer than this many total Mavis reviews.
 min_reviews_for_state: 250
+
+# Town-level suppression uses its own, much lower bar than the state-level
+# one above - a single town having only 1 Mavis store is normal, not a sign
+# of thin data, so reusing the state thresholds here was wrong (it flagged
+# Corsicana, TX - 1 store, 411 reviews - as "insufficient").
+min_locations_for_town: 1
+min_reviews_for_town: 30

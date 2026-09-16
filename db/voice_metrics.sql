@@ -13,6 +13,7 @@
 -- that number back through the materialized view to the individual stores
 -- that produced it."
 
+DROP MATERIALIZED VIEW IF EXISTS voice.brand_state_delta CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.town_delta CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.state_delta CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS voice.location_benchmark CASCADE;
@@ -86,6 +87,7 @@ SELECT
     state,
     count(*) AS n_mavis_locations,
     sum(mavis_n) AS total_mavis_reviews,
+    sum(CASE WHEN low_comparability THEN 1 ELSE 0 END) AS n_low_comparability_locations,
     (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0)) AS avg_mavis_adj_rating,
     (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS state_delta,
     (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0))
@@ -99,21 +101,45 @@ CREATE UNIQUE INDEX ON voice.state_delta (state);
 
 -- Same as state_delta, grouped by (state, city) instead - the table's
 -- town/metro drill level and the map's state-click-to-towns drill-down.
--- Same suppression thresholds applied per town (not a separate config
--- value - a town this small failing the state-level bar should suppress
--- the same way).
+-- Its own, much lower suppression bar: a single town having only 1 Mavis
+-- store is normal, not thin data, so reusing the state-level "5+ locations"
+-- threshold here was wrong (it flagged real towns like Corsicana, TX - 1
+-- store, 411 reviews - as insufficient).
 CREATE MATERIALIZED VIEW voice.town_delta AS
 SELECT
     state, city,
     count(*) AS n_mavis_locations,
     sum(mavis_n) AS total_mavis_reviews,
+    sum(CASE WHEN low_comparability THEN 1 ELSE 0 END) AS n_low_comparability_locations,
     (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0)) AS avg_mavis_adj_rating,
     (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS town_delta,
     (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0))
         - (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
-    (count(*) < {min_locations_for_state} OR coalesce(sum(mavis_n), 0) < {min_reviews_for_state}) AS suppressed
+    (count(*) < {min_locations_for_town} OR coalesce(sum(mavis_n), 0) < {min_reviews_for_town}) AS suppressed
 FROM voice.location_benchmark
 WHERE delta IS NOT NULL
 GROUP BY state, city;
 
 CREATE UNIQUE INDEX ON voice.town_delta (state, city);
+
+-- Per-brand state rollup - same shape as state_delta, but grouped by Mavis
+-- banner too, so "how does Midas do in Texas vs local competitors" is its
+-- own number instead of being pooled into the whole portfolio's average.
+-- Uses the town-level (not state-level) suppression bar, since one brand
+-- within one state is a similarly small slice as one town.
+CREATE MATERIALIZED VIEW voice.brand_state_delta AS
+SELECT
+    state, brand_id, brand_name,
+    count(*) AS n_mavis_locations,
+    sum(mavis_n) AS total_mavis_reviews,
+    sum(CASE WHEN low_comparability THEN 1 ELSE 0 END) AS n_low_comparability_locations,
+    (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0)) AS avg_mavis_adj_rating,
+    (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS state_delta,
+    (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0))
+        - (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
+    (count(*) < {min_locations_for_town} OR coalesce(sum(mavis_n), 0) < {min_reviews_for_town}) AS suppressed
+FROM voice.location_benchmark
+WHERE delta IS NOT NULL
+GROUP BY state, brand_id, brand_name;
+
+CREATE INDEX ON voice.brand_state_delta (state);

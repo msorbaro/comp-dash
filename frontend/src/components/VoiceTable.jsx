@@ -74,13 +74,20 @@ function SortableHead({ columns, sortKey, sortDir, onSort }) {
   )
 }
 
+function comparabilityNote(r) {
+  if (!r.n_low_comparability_locations) return ''
+  const n = r.n_low_comparability_locations
+  return ` (${n} store${n === 1 ? '' : 's'} w/ <3 nearby competitors)`
+}
+
 const STATE_COLUMNS = [
   { label: 'STATE', width: '2fr', sortKey: 'state_name', value: (r) => r.state_name },
   { label: 'MAVIS RATING', width: '1.2fr', sortKey: 'mavis_rating', value: (r) => fmtRating(r.mavis_rating) },
   { label: 'COMPETITOR BENCHMARK', width: '1.2fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
   { label: 'DELTA', width: '1fr', sortKey: 'delta', value: (r) => fmtDelta(r.delta) },
   { label: 'MAVIS REVIEWS', width: '1.1fr', sortKey: 'total_mavis_reviews', value: (r) => fmtNum(r.total_mavis_reviews) },
-  { label: 'STATUS', width: '1.2fr', sortKey: null, value: (r) => (!r.has_data ? 'No pilot data' : r.suppressed ? 'Insufficient data' : 'OK') },
+  { label: 'STATUS', width: '1.6fr', sortKey: null, value: (r) => (!r.has_data ? 'No pilot data' : r.suppressed ? 'Insufficient data' : `OK${comparabilityNote(r)}`) },
+  { label: 'BY BRAND', width: '0.9fr', sortKey: null, action: 'brand', value: () => 'View ▸' },
 ]
 
 const TOWN_COLUMNS = [
@@ -89,7 +96,17 @@ const TOWN_COLUMNS = [
   { label: 'COMPETITOR BENCHMARK', width: '1.2fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
   { label: 'DELTA', width: '1fr', sortKey: 'delta', value: (r) => fmtDelta(r.delta) },
   { label: 'MAVIS REVIEWS', width: '1.1fr', sortKey: 'total_mavis_reviews', value: (r) => fmtNum(r.total_mavis_reviews) },
-  { label: 'STATUS', width: '1.2fr', sortKey: null, value: (r) => (r.suppressed ? 'Insufficient data' : 'OK') },
+  { label: 'STATUS', width: '1.6fr', sortKey: null, value: (r) => (r.suppressed ? 'Insufficient data' : `OK${comparabilityNote(r)}`) },
+]
+
+const BRAND_COLUMNS = [
+  { label: 'MAVIS BRAND', width: '2fr', sortKey: 'brand', value: (r) => r.brand },
+  { label: 'MAVIS RATING', width: '1.2fr', sortKey: 'mavis_rating', value: (r) => fmtRating(r.mavis_rating) },
+  { label: 'COMPETITOR BENCHMARK', width: '1.2fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
+  { label: 'DELTA', width: '1fr', sortKey: 'delta', value: (r) => fmtDelta(r.delta) },
+  { label: 'MAVIS REVIEWS', width: '1.1fr', sortKey: 'total_mavis_reviews', value: (r) => fmtNum(r.total_mavis_reviews) },
+  { label: 'LOCATIONS', width: '0.9fr', sortKey: 'n_mavis_locations', value: (r) => fmtNum(r.n_mavis_locations) },
+  { label: 'STATUS', width: '1.6fr', sortKey: null, value: (r) => (r.suppressed ? 'Insufficient data' : `OK${comparabilityNote(r)}`) },
 ]
 
 const STORE_COLUMNS = [
@@ -107,6 +124,7 @@ export default function VoiceTable({ states, initialState, onDrillChange }) {
   const [drill, setDrill] = useState(() => (initialState ? { level: 'town', state: initialState } : { level: 'state' }))
   const [towns, setTowns] = useState(null)
   const [stores, setStores] = useState(null)
+  const [brands, setBrands] = useState(null)
   const [error, setError] = useState(null)
   const [sortKey, setSortKey] = useState('delta')
   const [sortDir, setSortDir] = useState('desc')
@@ -129,6 +147,10 @@ export default function VoiceTable({ states, initialState, onDrillChange }) {
       setStores(null); setError(null)
       api.voiceStores(drill.state, drill.city).then(setStores).catch((e) => setError(e.message))
     }
+    if (drill.level === 'brand') {
+      setBrands(null); setError(null)
+      api.voiceBrands(drill.state).then(setBrands).catch((e) => setError(e.message))
+    }
   }, [drill.level, drill.state, drill.city])
 
   const handleSort = (key) => {
@@ -138,23 +160,34 @@ export default function VoiceTable({ states, initialState, onDrillChange }) {
 
   const rawStateName = states.find((s) => s.state === drill.state)?.state_name
 
-  let columns, rows, filename, breadcrumb
+  let columns, rows, filename, crumbs
+
+  const ALL_STATES_CRUMB = { label: 'All states', target: { level: 'state' } }
 
   if (drill.level === 'state') {
     columns = STATE_COLUMNS
     rows = states.filter((s) => s.has_data)
     filename = 'voice-states.csv'
-    breadcrumb = ['All states']
+    crumbs = [{ label: 'All states', target: null }]
   } else if (drill.level === 'town') {
     columns = TOWN_COLUMNS
     rows = towns || []
     filename = `voice-${drill.state}-towns.csv`
-    breadcrumb = ['All states', rawStateName || drill.state]
+    crumbs = [ALL_STATES_CRUMB, { label: rawStateName || drill.state, target: null }]
+  } else if (drill.level === 'brand') {
+    columns = BRAND_COLUMNS
+    rows = brands || []
+    filename = `voice-${drill.state}-brands.csv`
+    crumbs = [ALL_STATES_CRUMB, { label: `${rawStateName || drill.state} — by brand`, target: null }]
   } else {
     columns = STORE_COLUMNS
     rows = (stores || []).filter((r) => !brandFilter || r.brand === brandFilter)
     filename = `voice-${drill.state}${drill.city ? `-${drill.city}` : ''}-stores.csv`
-    breadcrumb = ['All states', rawStateName || drill.state, drill.city || 'All towns']
+    crumbs = [
+      ALL_STATES_CRUMB,
+      { label: rawStateName || drill.state, target: { level: 'town', state: drill.state } },
+      { label: drill.city || 'All towns', target: null },
+    ]
   }
 
   const sorted = useMemo(() => sortRows(rows, sortKey, sortDir), [rows, sortKey, sortDir])
@@ -163,27 +196,28 @@ export default function VoiceTable({ states, initialState, onDrillChange }) {
     return [...new Set(stores.map((r) => r.brand))].sort()
   }, [drill.level, stores])
 
-  const loading = (drill.level === 'town' && !towns && !error) || (drill.level === 'store' && !stores && !error)
+  const loading = (
+    (drill.level === 'town' && !towns && !error) ||
+    (drill.level === 'store' && !stores && !error) ||
+    (drill.level === 'brand' && !brands && !error)
+  )
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
         <div style={{ fontSize: 11, color: MUTED }}>
-          {breadcrumb.map((b, i) => (
+          {crumbs.map((c, i) => (
             <span key={i}>
               {i > 0 && <span style={{ margin: '0 6px' }}>›</span>}
-              {i < breadcrumb.length - 1 ? (
+              {c.target ? (
                 <span
-                  onClick={() => {
-                    if (i === 0) setDrill({ level: 'state' })
-                    else if (i === 1) setDrill({ level: 'town', state: drill.state })
-                  }}
+                  onClick={() => setDrill(c.target)}
                   style={{ cursor: 'pointer', textDecoration: 'underline', color: TEAL_700 }}
                 >
-                  {b}
+                  {c.label}
                 </span>
               ) : (
-                <span style={{ fontWeight: 600, color: INK_TEXT }}>{b}</span>
+                <span style={{ fontWeight: 600, color: INK_TEXT }}>{c.label}</span>
               )}
             </span>
           ))}
@@ -215,7 +249,7 @@ export default function VoiceTable({ states, initialState, onDrillChange }) {
             <SortableHead columns={columns} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
             {sorted.map((r, i) => {
               const clickable = drill.level === 'state' ? !r.suppressed : drill.level === 'town' ? !r.suppressed : false
-              const key = drill.level === 'state' ? r.state : drill.level === 'town' ? r.city : r.name + i
+              const key = drill.level === 'state' ? r.state : drill.level === 'town' ? r.city : drill.level === 'brand' ? r.brand : r.name + i
               return (
                 <div key={key}>
                   <div
@@ -231,10 +265,13 @@ export default function VoiceTable({ states, initialState, onDrillChange }) {
                     {columns.map((c) => (
                       <div
                         key={c.label}
+                        onClick={c.action ? (e) => { e.stopPropagation(); setDrill({ level: c.action, state: r.state || drill.state }) } : undefined}
                         style={{
-                          color: c.sortKey === 'delta' ? deltaColor(r.delta) : INK_TEXT,
+                          color: c.action ? TEAL_700 : c.sortKey === 'delta' ? deltaColor(r.delta) : INK_TEXT,
                           fontFamily: c.sortKey === 'delta' || c.label.includes('RATING') ? MONO : undefined,
                           fontWeight: c.sortKey === 'delta' ? 600 : 400,
+                          cursor: c.action ? 'pointer' : undefined,
+                          textDecoration: c.action ? 'underline' : undefined,
                         }}
                       >
                         {c.value(r)}

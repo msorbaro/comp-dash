@@ -21,7 +21,7 @@ def state_summary() -> list:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT sd.state, sd.n_mavis_locations, sd.total_mavis_reviews,
+                SELECT sd.state, sd.n_mavis_locations, sd.total_mavis_reviews, sd.n_low_comparability_locations,
                        sd.avg_mavis_adj_rating, sd.state_delta, sd.avg_comp_benchmark_rating, sd.suppressed
                 FROM voice.state_delta sd
             """)
@@ -33,10 +33,11 @@ def state_summary() -> list:
             continue
         row = by_state.get(code)
         if row:
-            _, n_locations, total_reviews, mavis_rating, delta, comp_rating, suppressed = row
+            _, n_locations, total_reviews, n_low_comp, mavis_rating, delta, comp_rating, suppressed = row
             out.append({
                 "state": code, "state_name": name, "has_data": True,
                 "n_mavis_locations": n_locations, "total_mavis_reviews": total_reviews,
+                "n_low_comparability_locations": n_low_comp,
                 "mavis_rating": float(mavis_rating) if mavis_rating is not None else None,
                 "delta": float(delta) if delta is not None else None,
                 "comp_rating": float(comp_rating) if comp_rating is not None else None,
@@ -45,17 +46,44 @@ def state_summary() -> list:
         else:
             out.append({
                 "state": code, "state_name": name, "has_data": False,
-                "n_mavis_locations": 0, "total_mavis_reviews": 0,
+                "n_mavis_locations": 0, "total_mavis_reviews": 0, "n_low_comparability_locations": 0,
                 "mavis_rating": None, "delta": None, "comp_rating": None, "suppressed": True,
             })
     return out
+
+
+def brand_state_summary(state: str) -> list:
+    """Per-Mavis-banner rollup within one state - e.g. how Midas alone
+    compares to local competitors, distinct from the whole-portfolio number
+    state_summary() gives."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT brand_name, n_mavis_locations, total_mavis_reviews, n_low_comparability_locations,
+                       avg_mavis_adj_rating, state_delta, avg_comp_benchmark_rating, suppressed
+                FROM voice.brand_state_delta
+                WHERE state = %s
+                ORDER BY state_delta DESC NULLS LAST
+            """, (state,))
+            rows = cur.fetchall()
+    return [
+        {
+            "brand": brand, "n_mavis_locations": n_locations, "total_mavis_reviews": total_reviews,
+            "n_low_comparability_locations": n_low_comp,
+            "mavis_rating": float(mavis_rating) if mavis_rating is not None else None,
+            "delta": float(delta) if delta is not None else None,
+            "comp_rating": float(comp_rating) if comp_rating is not None else None,
+            "suppressed": suppressed,
+        }
+        for brand, n_locations, total_reviews, n_low_comp, mavis_rating, delta, comp_rating, suppressed in rows
+    ]
 
 
 def town_summary(state: str) -> list:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT city, n_mavis_locations, total_mavis_reviews,
+                SELECT city, n_mavis_locations, total_mavis_reviews, n_low_comparability_locations,
                        avg_mavis_adj_rating, town_delta, avg_comp_benchmark_rating, suppressed
                 FROM voice.town_delta
                 WHERE state = %s
@@ -65,12 +93,13 @@ def town_summary(state: str) -> list:
     return [
         {
             "city": city, "n_mavis_locations": n_locations, "total_mavis_reviews": total_reviews,
+            "n_low_comparability_locations": n_low_comp,
             "mavis_rating": float(mavis_rating) if mavis_rating is not None else None,
             "delta": float(delta) if delta is not None else None,
             "comp_rating": float(comp_rating) if comp_rating is not None else None,
             "suppressed": suppressed,
         }
-        for city, n_locations, total_reviews, mavis_rating, delta, comp_rating, suppressed in rows
+        for city, n_locations, total_reviews, n_low_comp, mavis_rating, delta, comp_rating, suppressed in rows
     ]
 
 

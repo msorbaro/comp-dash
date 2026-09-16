@@ -24,6 +24,8 @@ def run():
         ring_radius_km=config["ring_radius_miles"] * MILES_TO_KM,
         min_locations_for_state=config["min_locations_for_state"],
         min_reviews_for_state=config["min_reviews_for_state"],
+        min_locations_for_town=config["min_locations_for_town"],
+        min_reviews_for_town=config["min_reviews_for_town"],
     )
 
     with get_conn() as conn:
@@ -40,14 +42,24 @@ def run():
             n_states = cur.fetchone()[0]
             cur.execute("SELECT count(*) FROM voice.state_delta WHERE NOT suppressed")
             n_states_visible = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM voice.town_delta")
+            n_towns = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM voice.town_delta WHERE NOT suppressed")
+            n_towns_visible = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM voice.brand_state_delta")
+            n_brand_states = cur.fetchone()[0]
 
     print(f"Rebuilt with shrinkage_m={config['shrinkage_m']}, "
           f"ring_radius_miles={config['ring_radius_miles']}, "
           f"min_locations_for_state={config['min_locations_for_state']}, "
-          f"min_reviews_for_state={config['min_reviews_for_state']}")
+          f"min_reviews_for_state={config['min_reviews_for_state']}, "
+          f"min_locations_for_town={config['min_locations_for_town']}, "
+          f"min_reviews_for_town={config['min_reviews_for_town']}")
     print(f"location_adjusted_ratings: {n_locations} locations with a rating")
     print(f"location_benchmark: {n_benchmarked} Mavis locations benchmarked")
     print(f"state_delta: {n_states} states with data, {n_states_visible} pass the suppression threshold")
+    print(f"town_delta: {n_towns} towns with data, {n_towns_visible} pass the suppression threshold")
+    print(f"brand_state_delta: {n_brand_states} (state, brand) rows")
 
 
 if __name__ == "__main__":
