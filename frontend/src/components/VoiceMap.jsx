@@ -122,6 +122,22 @@ export default function VoiceMap({ states }) {
     [selectedCountyFeature]
   )
 
+  // Geography (below) only renders correctly for objects that have come out
+  // of Geographies's own render-prop - this library pre-computes each
+  // feature's SVG path there and Geography just reads it off, rather than
+  // computing it itself from context. Feeding Geography a raw, manually
+  // decoded feature (no Geographies wrapper) renders an empty/path-less
+  // shape - so both of these go through Geographies, just fed a pre-filtered
+  // FeatureCollection instead of the full nationwide topology.
+  const countyFeatureCollection = useMemo(
+    () => ({ type: 'FeatureCollection', features: countyFeaturesForState }),
+    [countyFeaturesForState]
+  )
+  const selectedCountyFeatureCollection = useMemo(
+    () => ({ type: 'FeatureCollection', features: selectedCountyFeature ? [selectedCountyFeature] : [] }),
+    [selectedCountyFeature]
+  )
+
   const crumbs = [{ label: 'All states', onClick: mode !== 'us' ? () => { setSelectedState(null); setSelectedCounty(null) } : null }]
   if (selectedState) crumbs.push({ label: selectedState.name, onClick: mode === 'stores' ? () => setSelectedCounty(null) : null })
   if (selectedCounty) crumbs.push({ label: `${selectedCounty.name} County`, onClick: null })
@@ -161,35 +177,44 @@ export default function VoiceMap({ states }) {
 
       {mode === 'county' && countyProjection && (
         <ComposableMap projection={countyProjection} width={WIDTH} height={HEIGHT} style={{ width: '100%', height: 'auto' }}>
-          {countyFeaturesForState.map((f) => {
-            const c = byCountyFips[f.id]
-            const visible = !!(c && !c.suppressed)
-            const fill = visible ? divergingColor(c.delta) : SLATE_200
-            return (
-              <Geography
-                key={f.id}
-                geography={f}
-                title={areaTooltip(f.properties?.name ? `${f.properties.name} County` : f.id, c)}
-                onClick={() => { if (c) setSelectedCounty({ fips: f.id, name: f.properties?.name || c.county_name }) }}
-                style={{
-                  default: { fill, stroke: '#FFFFFF', strokeWidth: 0.75, outline: 'none', cursor: c ? 'pointer' : 'default' },
-                  hover: { fill, stroke: '#FFFFFF', strokeWidth: 1.25, outline: 'none', opacity: c ? 0.82 : 1 },
-                  pressed: { fill, stroke: '#FFFFFF', strokeWidth: 1.25, outline: 'none' },
-                }}
-              />
-            )
-          })}
+          <Geographies geography={countyFeatureCollection}>
+            {({ geographies }) =>
+              geographies.map((geo) => {
+                const c = byCountyFips[geo.id]
+                const visible = !!(c && !c.suppressed)
+                const fill = visible ? divergingColor(c.delta) : SLATE_200
+                return (
+                  <Geography
+                    key={geo.id}
+                    geography={geo}
+                    title={areaTooltip(geo.properties?.name ? `${geo.properties.name} County` : geo.id, c)}
+                    onClick={() => { if (c) setSelectedCounty({ fips: geo.id, name: geo.properties?.name || c.county_name }) }}
+                    style={{
+                      default: { fill, stroke: '#FFFFFF', strokeWidth: 0.75, outline: 'none', cursor: c ? 'pointer' : 'default' },
+                      hover: { fill, stroke: '#FFFFFF', strokeWidth: 1.25, outline: 'none', opacity: c ? 0.82 : 1 },
+                      pressed: { fill, stroke: '#FFFFFF', strokeWidth: 1.25, outline: 'none' },
+                    }}
+                  />
+                )
+              })
+            }
+          </Geographies>
         </ComposableMap>
       )}
 
       {mode === 'stores' && (
         <ComposableMap projection={storesProjection || 'geoMercator'} width={WIDTH} height={HEIGHT} style={{ width: '100%', height: 'auto' }}>
-          {selectedCountyFeature && (
-            <Geography
-              geography={selectedCountyFeature}
-              style={{ default: { fill: '#F6F8FA', stroke: SLATE_400, strokeWidth: 1, outline: 'none' } }}
-            />
-          )}
+          <Geographies geography={selectedCountyFeatureCollection}>
+            {({ geographies }) =>
+              geographies.map((geo) => (
+                <Geography
+                  key={geo.id}
+                  geography={geo}
+                  style={{ default: { fill: '#F6F8FA', stroke: SLATE_400, strokeWidth: 1, outline: 'none' } }}
+                />
+              ))
+            }
+          </Geographies>
           {(stores || []).map((store, i) => (
             <Marker key={i} coordinates={[store.lng, store.lat]}>
               <circle r={7} fill={divergingColor(store.delta)} stroke="#FFFFFF" strokeWidth={1.5}>
