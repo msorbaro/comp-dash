@@ -25,6 +25,22 @@ function fmtDelta(v) {
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}`
 }
 
+// Review-count-weighted average, matching the convention every rollup in
+// this app already uses (state_delta, town_delta, etc: sum(n*x)/sum(n)) -
+// so a brand's one 400-review flagship store isn't diluted by three
+// 10-review locations the way a plain average would.
+function weightedAvg(items, valueKey, weightKey) {
+  let sumWeight = 0, sumWeightedValue = 0
+  for (const it of items) {
+    const v = it[valueKey]
+    const w = it[weightKey]
+    if (v === null || v === undefined || !w) continue
+    sumWeight += w
+    sumWeightedValue += w * v
+  }
+  return sumWeight ? sumWeightedValue / sumWeight : null
+}
+
 function sortRows(rows, key, dir) {
   if (!key) return rows
   return [...rows].sort((a, b) => {
@@ -138,32 +154,52 @@ const COMPETITOR_COLUMNS = [
   { label: 'REVIEWS', width: '1fr', sortKey: 'total_reviews', value: (r) => fmtNum(r.total_reviews) },
 ]
 
-// Individual locations, both families - Mavis rows carry a delta/comparability
-// vs. nearby competitors; competitor rows don't (same reasoning as above).
-const STORE_COLUMNS = [
-  { label: 'STORE', width: '1.6fr', sortKey: 'name', value: (r) => r.name },
-  { label: 'BRAND', width: '1.3fr', sortKey: 'brand', value: (r) => r.brand },
-  { label: 'TYPE', width: '0.8fr', sortKey: 'family', value: (r) => (r.family === 'mavis' ? 'Mavis' : 'Competitor') },
-  { label: 'RATING', width: '0.8fr', sortKey: 'raw_rating', value: (r) => fmtRating(r.raw_rating) },
-  { label: 'ADJ. RATING', width: '0.9fr', sortKey: 'adj_rating', value: (r) => fmtRating(r.adj_rating) },
-  { label: 'DELTA', width: '0.8fr', sortKey: 'delta', value: (r) => (r.family === 'mavis' ? fmtDelta(r.delta) : '—') },
-  { label: 'REVIEWS', width: '0.8fr', sortKey: 'review_count', value: (r) => fmtNum(r.review_count) },
+// Store level is grouped by brand (one row per brand in this town, not per
+// location) - a brand with multiple locations here shows a review-weighted
+// aggregate with an expand toggle to see the individual stores, rather than
+// a flat list where the same brand appears N times. Mavis rows carry a
+// delta/comparability vs. nearby competitors; competitor rows don't.
+const STORE_AGG_COLUMNS = [
+  { label: 'BRAND', width: '1.8fr', sortKey: 'brand', value: (r) => r.brand },
+  { label: 'TYPE', width: '0.9fr', sortKey: 'family', value: (r) => (r.family === 'mavis' ? 'Mavis' : 'Competitor') },
+  { label: 'AVG RATING', width: '1fr', sortKey: 'avgRating', value: (r) => fmtRating(r.avgRating) },
+  { label: 'ADJ. RATING', width: '1fr', sortKey: 'avgAdjRating', value: (r) => fmtRating(r.avgAdjRating) },
+  { label: 'DELTA', width: '0.9fr', sortKey: 'avgDelta', value: (r) => (r.family === 'mavis' ? fmtDelta(r.avgDelta) : '—') },
+  { label: 'REVIEWS', width: '0.9fr', sortKey: 'totalReviews', value: (r) => fmtNum(r.totalReviews) },
+  { label: 'LOCATIONS', width: '0.8fr', sortKey: 'n_locations', value: (r) => fmtNum(r.n_locations) },
+  { label: 'NEIGHBORHOOD AVG', width: '1.2fr', sortKey: null, value: (r) => fmtRating(r.neighborhoodAvg) },
   {
-    label: 'COMPARABILITY', width: '1.3fr', sortKey: null,
+    label: '% LOCATIONS ABOVE AVG', width: '1.4fr', sortKey: 'pctAboveAvg',
+    value: (r) => (r.pctAboveAvg === null || r.pctAboveAvg === undefined ? '—' : `${Math.round(r.pctAboveAvg * 100)}%`),
+  },
+]
+
+// One row per individual store, shown indented under an expanded brand row.
+const STORE_CHILD_COLUMNS = [
+  { label: '', width: '1.8fr', sortKey: null, value: (r) => r.name },
+  { label: '', width: '0.9fr', sortKey: null, value: () => '' },
+  { label: '', width: '1fr', sortKey: null, value: (r) => fmtRating(r.raw_rating) },
+  { label: '', width: '1fr', sortKey: null, value: (r) => fmtRating(r.adj_rating) },
+  { label: '', width: '0.9fr', sortKey: null, value: (r) => (r.family === 'mavis' ? fmtDelta(r.delta) : '—') },
+  { label: '', width: '0.9fr', sortKey: null, value: (r) => fmtNum(r.review_count) },
+  { label: '', width: '0.8fr', sortKey: null, value: () => '' },
+  { label: '', width: '1.2fr', sortKey: null, value: () => '' },
+  {
+    label: '', width: '1.4fr', sortKey: null,
     value: (r) => {
       if (r.family !== 'mavis') return '—'
       if (r.delta === null || r.delta === undefined) return 'No competitors within 15mi'
-      return r.low_comparability ? `Low (${r.n_competitors_in_ring} in ring)` : `OK (${r.n_competitors_in_ring} in ring)`
+      return r.low_comparability ? `Low comparability (${r.n_competitors_in_ring} in ring)` : `OK (${r.n_competitors_in_ring} in ring)`
     },
   },
 ]
 
 const COLUMNS_BY_LEVEL = {
   state: STATE_COLUMNS, county: COUNTY_COLUMNS, town: TOWN_COLUMNS,
-  store: STORE_COLUMNS, brand: BRAND_COLUMNS, competitors: COMPETITOR_COLUMNS,
+  store: STORE_AGG_COLUMNS, brand: BRAND_COLUMNS, competitors: COMPETITOR_COLUMNS,
 }
 const DEFAULT_SORT_BY_LEVEL = {
-  state: 'delta', county: 'delta', town: 'delta', store: 'delta',
+  state: 'delta', county: 'delta', town: 'delta', store: 'avgRating',
   brand: 'delta', competitors: 'avg_adj_rating',
 }
 
@@ -179,6 +215,7 @@ export default function VoiceTable({ states }) {
   const [sortDir, setSortDir] = useState('desc')
   const [brandFilter, setBrandFilter] = useState('')
   const [familyFilter, setFamilyFilter] = useState('')
+  const [expandedBrands, setExpandedBrands] = useState(() => new Set())
 
   // Centralizes every navigation: resets sort to a sensible default for the
   // new level's columns (the old sortKey often doesn't exist there) and
@@ -189,6 +226,16 @@ export default function VoiceTable({ states }) {
     setSortDir('desc')
     setBrandFilter('')
     setFamilyFilter('')
+    setExpandedBrands(new Set())
+  }
+
+  const toggleBrandExpanded = (brand) => {
+    setExpandedBrands((prev) => {
+      const next = new Set(prev)
+      if (next.has(brand)) next.delete(brand)
+      else next.add(brand)
+      return next
+    })
   }
 
   useEffect(() => {
@@ -231,9 +278,33 @@ export default function VoiceTable({ states }) {
     rows = towns || []
     filename = `voice-${drill.state}-${drill.county_fips}-towns.csv`
   } else if (drill.level === 'store') {
-    rows = (locations || [])
+    // "Neighborhood average" is the whole town's own weighted-average
+    // rating (every location, every brand, before any filter) - a fixed
+    // benchmark that shouldn't shift depending on what the user has
+    // filtered the table down to.
+    const neighborhoodAvg = weightedAvg(locations || [], 'raw_rating', 'review_count')
+    const filteredLocations = (locations || [])
       .filter((r) => !brandFilter || r.brand === brandFilter)
       .filter((r) => !familyFilter || r.family === familyFilter)
+    const byBrand = new Map()
+    for (const loc of filteredLocations) {
+      if (!byBrand.has(loc.brand)) byBrand.set(loc.brand, [])
+      byBrand.get(loc.brand).push(loc)
+    }
+    rows = [...byBrand.entries()].map(([brand, locs]) => {
+      const nAbove = neighborhoodAvg === null
+        ? null
+        : locs.filter((l) => l.raw_rating !== null && l.raw_rating !== undefined && l.raw_rating > neighborhoodAvg).length
+      return {
+        brand, family: locs[0].family, locations: locs, n_locations: locs.length,
+        totalReviews: locs.reduce((sum, l) => sum + (l.review_count || 0), 0),
+        avgRating: weightedAvg(locs, 'raw_rating', 'review_count'),
+        avgAdjRating: weightedAvg(locs, 'adj_rating', 'review_count'),
+        avgDelta: weightedAvg(locs, 'delta', 'review_count'),
+        neighborhoodAvg,
+        pctAboveAvg: nAbove === null ? null : nAbove / locs.length,
+      }
+    })
     filename = `voice-${drill.state}-${drill.county_fips}-${drill.city || 'all'}-stores.csv`
   } else if (drill.level === 'brand') {
     rows = brands || []
@@ -340,7 +411,7 @@ export default function VoiceTable({ states }) {
         <div style={{ padding: 30, color: MUTED, fontSize: 12 }}>No rows to show.</div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
-          <div style={{ minWidth: 820 }}>
+          <div style={{ minWidth: drill.level === 'store' ? 1080 : 820 }}>
             <SortableHead columns={columns} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
             {sorted.map((r, i) => {
               const clickable =
@@ -351,8 +422,10 @@ export default function VoiceTable({ states }) {
                 drill.level === 'state' ? r.state :
                 drill.level === 'county' ? r.county_fips :
                 drill.level === 'town' ? r.city :
-                drill.level === 'store' ? r.location_id :
                 r.brand
+              const isDeltaCol = (c) => c.sortKey === 'delta' || c.sortKey === 'avgDelta'
+              const expandable = drill.level === 'store' && r.n_locations > 1
+              const expanded = expandable && expandedBrands.has(r.brand)
               return (
                 <div key={key}>
                   <div
@@ -367,27 +440,58 @@ export default function VoiceTable({ states }) {
                       padding: '9px 0', cursor: clickable ? 'pointer' : 'default', fontSize: 12,
                     }}
                   >
-                    {columns.map((c) => (
+                    {columns.map((c, ci) => (
                       <div
-                        key={c.label}
-                        onClick={c.action ? (e) => {
-                          e.stopPropagation()
-                          if (drill.level === 'state') goDrill({ level: c.action, state: r.state })
-                          else if (drill.level === 'county') goDrill({ level: c.action, state: drill.state, county_fips: r.county_fips, county_name: r.county_name })
-                        } : undefined}
+                        key={c.label || ci}
+                        onClick={
+                          c.action ? (e) => {
+                            e.stopPropagation()
+                            if (drill.level === 'state') goDrill({ level: c.action, state: r.state })
+                            else if (drill.level === 'county') goDrill({ level: c.action, state: drill.state, county_fips: r.county_fips, county_name: r.county_name })
+                          } : expandable && ci === 0 ? (e) => { e.stopPropagation(); toggleBrandExpanded(r.brand) } : undefined
+                        }
                         style={{
-                          color: c.action ? TEAL_700 : c.sortKey === 'delta' ? deltaColor(r.delta) : INK_TEXT,
-                          fontFamily: c.sortKey === 'delta' || c.label.includes('RATING') ? MONO : undefined,
-                          fontWeight: c.sortKey === 'delta' ? 600 : 400,
-                          cursor: c.action ? 'pointer' : undefined,
+                          color: c.action ? TEAL_700 : isDeltaCol(c) ? deltaColor(r.delta ?? r.avgDelta) : INK_TEXT,
+                          fontFamily: isDeltaCol(c) || c.label.includes('RATING') ? MONO : undefined,
+                          fontWeight: isDeltaCol(c) ? 600 : 400,
+                          cursor: c.action || (expandable && ci === 0) ? 'pointer' : undefined,
                           textDecoration: c.action ? 'underline' : undefined,
+                          userSelect: expandable && ci === 0 ? 'none' : undefined,
                         }}
                       >
+                        {expandable && ci === 0 && (
+                          <span style={{ display: 'inline-block', width: 14, fontWeight: 700, color: DEEP_TEAL }}>
+                            {expanded ? '−' : '+'}
+                          </span>
+                        )}
                         {c.value(r)}
                       </div>
                     ))}
                   </div>
                   <RowDivider />
+                  {expanded && r.locations.map((loc) => (
+                    <div key={loc.location_id}>
+                      <div
+                        style={{
+                          display: 'grid', gridTemplateColumns: STORE_CHILD_COLUMNS.map((c) => c.width || '1fr').join(' '), gap: 12,
+                          padding: '7px 0', fontSize: 11.5, background: '#FAFBFC',
+                        }}
+                      >
+                        {STORE_CHILD_COLUMNS.map((c, ci) => (
+                          <div
+                            key={ci}
+                            style={{
+                              paddingLeft: ci === 0 ? 22 : 0, color: MUTED,
+                              fontFamily: ci === 2 || ci === 3 || ci === 4 ? MONO : undefined,
+                            }}
+                          >
+                            {c.value(loc)}
+                          </div>
+                        ))}
+                      </div>
+                      <RowDivider />
+                    </div>
+                  ))}
                 </div>
               )
             })}
