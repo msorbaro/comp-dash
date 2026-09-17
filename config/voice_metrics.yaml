@@ -8,7 +8,9 @@
 # gets half the weight; at n=10x that, ~91%.
 shrinkage_m: 50
 
-# Competitor benchmark ring radius, in miles (haversine).
+# Competitor benchmark used to be a 15-mile haversine ring; currently
+# unused - the benchmark is now "every competitor in the same town" instead
+# (simpler, no ring edge cases). Left here in case that reverts.
 ring_radius_miles: 15
 
 # A state renders gray ("insufficient data") instead of a color if it has

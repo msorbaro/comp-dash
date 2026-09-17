@@ -34,8 +34,8 @@ export default function Voice() {
         <div style={{ fontSize: 10, letterSpacing: '.15em', color: TEAL_700, fontWeight: 600 }}>CUSTOMER VOICE — PILOT</div>
         <h1 style={{ margin: '8px 0 0', fontSize: 28, fontWeight: 600 }}>Mavis review ratings vs. nearby competitors</h1>
         <div style={{ fontSize: 12, color: MUTED, marginTop: 5, maxWidth: '70ch', lineHeight: 1.5 }}>
-          Google Maps star ratings, Bayesian-shrunk per location, benchmarked against every competitor location within
-          15 miles. Pilot data only — {states ? `${activeCount} states with enough data to show` : 'loading…'}.
+          Google Maps star ratings, Bayesian-shrunk per location, benchmarked against every competitor location in the
+          same town. Pilot data only — {states ? `${activeCount} states with enough data to show` : 'loading…'}.
           Complaint theme analysis (from review text) is a later phase and not included here yet.
         </div>
 

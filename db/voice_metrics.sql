@@ -51,9 +51,17 @@ CREATE UNIQUE INDEX ON voice.location_adjusted_ratings (location_id);
 CREATE INDEX ON voice.location_adjusted_ratings (family);
 
 -- 4b: for each Mavis location, benchmark against every competitor location
--- within {ring_radius_km} (haversine), weighted by competitor review count
--- so a busy competitor counts more than a dead one. low_comparability flags
--- fewer than 3 competitors in ring, per spec.
+-- in the SAME TOWN (state + city), weighted by competitor review count so a
+-- busy competitor counts more than a dead one. Changed from a 15-mile
+-- haversine ring to a same-town comparison per instruction ("delta should
+-- be calculated for now as the store rating - town average") - simpler,
+-- and avoids the ring's own edge cases (a store near a town line drawing
+-- competitors from a neighboring town, or a rural store with no
+-- competitors within 15mi at all). {ring_radius_km}/ring_radius_miles are
+-- no longer used here - kept in config for now in case this reverts.
+-- n_competitors_in_ring/low_comparability keep their field names (many
+-- consumers reference them) but now mean "in this town", not "within
+-- 15mi" - still flags fewer than 3 as thin evidence, per spec.
 CREATE MATERIALIZED VIEW voice.location_benchmark AS
 SELECT
     m.location_id, m.brand_id, m.brand_name, m.location_name,
@@ -67,11 +75,7 @@ SELECT
 FROM voice.location_adjusted_ratings m
 LEFT JOIN voice.location_adjusted_ratings c
     ON c.family = 'competitor'
-    AND m.lat IS NOT NULL AND m.lng IS NOT NULL AND c.lat IS NOT NULL AND c.lng IS NOT NULL
-    AND 2 * 6371 * asin(sqrt(
-            sin(radians(c.lat - m.lat) / 2) ^ 2
-            + cos(radians(m.lat)) * cos(radians(c.lat)) * sin(radians(c.lng - m.lng) / 2) ^ 2
-        )) <= {ring_radius_km}
+    AND c.state = m.state AND c.city = m.city
 WHERE m.family = 'mavis'
 GROUP BY m.location_id, m.brand_id, m.brand_name, m.location_name, m.city, m.state, m.county_fips, m.county_name, m.lat, m.lng,
          m.raw_rating, m.adj_rating, m.n;

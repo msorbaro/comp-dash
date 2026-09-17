@@ -188,8 +188,8 @@ const STORE_CHILD_COLUMNS = [
     label: '', width: '1.4fr', sortKey: null,
     value: (r) => {
       if (r.family !== 'mavis') return '—'
-      if (r.delta === null || r.delta === undefined) return 'No competitors within 15mi'
-      return r.low_comparability ? `Low comparability (${r.n_competitors_in_ring} in ring)` : `OK (${r.n_competitors_in_ring} in ring)`
+      if (r.delta === null || r.delta === undefined) return 'No competitors in this town'
+      return r.low_comparability ? `Low comparability (${r.n_competitors_in_ring} in town)` : `OK (${r.n_competitors_in_ring} in town)`
     },
   },
 ]
