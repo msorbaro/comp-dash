@@ -381,16 +381,21 @@ def county_brand_matrix(state: str) -> dict:
     locations there beat the benchmark. A banner absent from a county gets
     no entry in that county's `brand_pct_above` (not 0% - it doesn't
     operate there, that's not the same as operating there and losing).
+    `brands` (the fixed column set) is restricted to banners that actually
+    operate SOMEWHERE in this state - a banner with zero locations in the
+    whole state (e.g. Brakes Plus/Town Fair Tire in FL) gets no column at
+    all, rather than an all-dash one.
     Returns {"brands": [ordered Mavis banner names], "counties": [...]} -
-    `brands` is the fixed, full column set the table renders one column
-    per, `counties` is the row data."""
+    `counties` is the row data."""
     mavis_name_by_id = {b["brand_id"]: b["name"] for b in list_brands() if b["family"] == "mavis"}
-    mavis_names_ordered = [name for _, name in sorted(
-        ((bid, name) for bid, name in mavis_name_by_id.items()), key=lambda x: x[1]
-    )]
 
     base = county_summary(state)
     all_locs = _locations_for_scope(state=state)
+    present_brand_ids = {loc["brand_id"] for loc in all_locs}
+    mavis_names_ordered = sorted(
+        name for bid, name in mavis_name_by_id.items() if bid in present_brand_ids
+    )
+
     by_county_fips = {}
     for loc in all_locs:
         by_county_fips.setdefault(loc["county_fips"], []).append(loc)
@@ -413,6 +418,48 @@ def county_brand_matrix(state: str) -> dict:
         counties_out.append({**c, "area_avg_rating": area_avg, "brand_pct_above": brand_pct_above})
 
     return {"brands": mavis_names_ordered, "counties": counties_out}
+
+
+def county_town_brand_matrix(state: str, county_fips: str) -> dict:
+    """Same per-Mavis-banner breakdown as county_brand_matrix(), one level
+    down: one row per town within a single county (matching
+    county_town_summary()'s rows) instead of one row per county. Each
+    town's "area avg rating" is that town's own all-brand average (the
+    market here is the town, not the whole county), and the %-above
+    columns are fixed to whichever Mavis banners operate anywhere in THIS
+    county - not state-wide - so a banner two counties over doesn't add an
+    all-dash column to a county it has nothing to do with."""
+    mavis_name_by_id = {b["brand_id"]: b["name"] for b in list_brands() if b["family"] == "mavis"}
+
+    base = county_town_summary(state, county_fips)
+    locs_in_county = _locations_for_scope(state=state, county_fips=county_fips)
+    present_brand_ids = {loc["brand_id"] for loc in locs_in_county}
+    mavis_names_ordered = sorted(
+        name for bid, name in mavis_name_by_id.items() if bid in present_brand_ids
+    )
+
+    by_city = {}
+    for loc in locs_in_county:
+        by_city.setdefault(loc["city"], []).append(loc)
+
+    towns_out = []
+    for t in base:
+        locs = by_city.get(t["city"], [])
+        area_avg = _weighted_avg(locs, "raw_rating")
+        by_brand = {}
+        for loc in locs:
+            by_brand.setdefault(loc["brand_id"], []).append(loc)
+        brand_pct_above = {}
+        if area_avg is not None:
+            for brand_id, brand_locs in by_brand.items():
+                name = mavis_name_by_id.get(brand_id)
+                if not name:
+                    continue
+                n_above = sum(1 for l in brand_locs if l["raw_rating"] > area_avg)
+                brand_pct_above[name] = n_above / len(brand_locs)
+        towns_out.append({**t, "area_avg_rating": area_avg, "brand_pct_above": brand_pct_above})
+
+    return {"brands": mavis_names_ordered, "towns": towns_out}
 
 
 def county_town_summary(state: str, county_fips: str) -> list:

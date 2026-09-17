@@ -59,7 +59,7 @@ function regionStyle(fill, clickable) {
 function comparabilityNote(r) {
   if (!r.n_low_comparability_locations) return ''
   const n = r.n_low_comparability_locations
-  return `\n${n} store${n === 1 ? '' : 's'} w/ <3 nearby competitors`
+  return `\n${n} store${n === 1 ? '' : 's'} w/ <3 nearby stores to compare against`
 }
 
 function areaTooltip(label, r) {
@@ -67,8 +67,8 @@ function areaTooltip(label, r) {
   if (r.suppressed) return `${label}: insufficient data`
   const sign = r.delta >= 0 ? '+' : ''
   return (
-    `${label}: ${sign}${r.delta.toFixed(2)} stars vs. local competitors\n` +
-    `Mavis ${r.mavis_rating.toFixed(2)} vs. competitors ${r.comp_rating.toFixed(2)}\n` +
+    `${label}: ${sign}${r.delta.toFixed(2)} stars vs. town average\n` +
+    `Mavis ${r.mavis_rating.toFixed(2)} vs. area avg ${r.comp_rating.toFixed(2)}\n` +
     `${r.n_mavis_locations} Mavis locations, ${fmtNum(r.total_mavis_reviews)} reviews${comparabilityNote(r)}`
   )
 }

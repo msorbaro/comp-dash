@@ -93,7 +93,7 @@ function SortableHead({ columns, sortKey, sortDir, onSort }) {
 function comparabilityNote(r) {
   if (!r.n_low_comparability_locations) return ''
   const n = r.n_low_comparability_locations
-  return ` (${n} store${n === 1 ? '' : 's'} w/ <3 nearby competitors)`
+  return ` (${n} store${n === 1 ? '' : 's'} w/ <3 rated stores in town)`
 }
 
 function areaStatus(r, { noDataLabel } = {}) {
@@ -106,7 +106,7 @@ function areaStatus(r, { noDataLabel } = {}) {
 const STATE_COLUMNS = [
   { label: 'STATE', width: '1.7fr', sortKey: 'state_name', value: (r) => r.state_name },
   { label: 'MAVIS RATING', width: '1fr', sortKey: 'mavis_rating', value: (r) => fmtRating(r.mavis_rating) },
-  { label: 'COMPETITOR BENCHMARK', width: '1.1fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
+  { label: 'AREA AVG RATING', width: '1.1fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
   { label: 'DELTA', width: '0.8fr', sortKey: 'delta', value: (r) => fmtDelta(r.delta) },
   { label: 'AVG REVIEWS/STORE', width: '1.1fr', sortKey: 'avgReviewsPerStore', value: (r) => fmtNum(r.avgReviewsPerStore) },
   { label: 'STATUS', width: '1.4fr', sortKey: null, value: (r) => areaStatus(r, { noDataLabel: 'No pilot data' }) },
@@ -114,17 +114,21 @@ const STATE_COLUMNS = [
   { label: 'BY COMPETITOR', width: '0.9fr', sortKey: null, action: 'competitors', value: () => 'View ▸' },
 ]
 
-// County level's columns are dynamic - one per Mavis banner that operates
-// anywhere in the state (a fixed set for the whole table, per spec: "since
-// those are all the brands that operate in the area"), each showing what %
-// of THAT banner's own locations in this county beat the county's own
-// all-brand average. A banner absent from one county shows "—" there, not
-// 0% - it doesn't operate there, which isn't the same as operating there
-// and losing. brandNames comes from the API response (voice.brands, not
-// hardcoded), so a new Mavis banner shows up automatically.
-function countyBrandColumns(brandNames) {
+// County and town levels share this same dynamic column shape - one row
+// per area (county-in-a-state, or town-in-a-county), with one %-above-avg
+// column per Mavis banner that operates anywhere in the wider market (the
+// state for counties, the county for towns) - a fixed set for the whole
+// table, per spec: "since those are all the brands that operate in the
+// area". Each shows what % of THAT banner's own locations in this area
+// beat the area's own all-brand average rating. A banner absent from one
+// area shows "—" there, not 0% - it doesn't operate there, which isn't the
+// same as operating there and losing. brandNames comes from the API
+// response (voice.brands, not hardcoded), so a new Mavis banner shows up
+// automatically, and a banner absent from the whole market never gets a
+// column at all.
+function brandBreakdownColumns(areaLabel, areaKey, brandNames) {
   return [
-    { label: 'COUNTY', width: '1.5fr', sortKey: 'county_name', value: (r) => r.county_name },
+    { label: areaLabel, width: '1.5fr', sortKey: areaKey, value: (r) => r[areaKey] },
     { label: 'MAVIS AVG RATING', width: '1.1fr', sortKey: 'mavis_rating', value: (r) => fmtRating(r.mavis_rating) },
     { label: 'AREA AVG RATING', width: '1.1fr', sortKey: 'area_avg_rating', value: (r) => fmtRating(r.area_avg_rating) },
     ...brandNames.map((name) => ({
@@ -139,19 +143,10 @@ function countyBrandColumns(brandNames) {
   ]
 }
 
-const TOWN_COLUMNS = [
-  { label: 'TOWN', width: '2fr', sortKey: 'city', value: (r) => r.city },
-  { label: 'MAVIS RATING', width: '1.1fr', sortKey: 'mavis_rating', value: (r) => fmtRating(r.mavis_rating) },
-  { label: 'COMPETITOR BENCHMARK', width: '1.2fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
-  { label: 'DELTA', width: '0.9fr', sortKey: 'delta', value: (r) => fmtDelta(r.delta) },
-  { label: 'AVG REVIEWS/STORE', width: '1.2fr', sortKey: 'avgReviewsPerStore', value: (r) => fmtNum(r.avgReviewsPerStore) },
-  { label: 'STATUS', width: '1.6fr', sortKey: null, value: (r) => areaStatus(r) },
-]
-
 const BRAND_COLUMNS = [
   { label: 'MAVIS BRAND', width: '2fr', sortKey: 'brand', value: (r) => r.brand },
   { label: 'MAVIS RATING', width: '1.2fr', sortKey: 'mavis_rating', value: (r) => fmtRating(r.mavis_rating) },
-  { label: 'COMPETITOR BENCHMARK', width: '1.2fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
+  { label: 'AREA AVG RATING', width: '1.2fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
   { label: 'DELTA', width: '1fr', sortKey: 'delta', value: (r) => fmtDelta(r.delta) },
   { label: 'AVG REVIEWS/STORE', width: '1.2fr', sortKey: 'avgReviewsPerStore', value: (r) => fmtNum(r.avgReviewsPerStore) },
   { label: 'LOCATIONS', width: '0.9fr', sortKey: 'n_mavis_locations', value: (r) => fmtNum(r.n_mavis_locations) },
@@ -209,21 +204,22 @@ const STORE_CHILD_COLUMNS = [
   },
 ]
 
-// County isn't here - its columns are dynamic (one per Mavis banner, built
-// from the API response), computed inline where rows/columns are assembled.
+// County and town aren't here - their columns are dynamic (one per Mavis
+// banner, built from the API response), computed inline where
+// rows/columns are assembled.
 const COLUMNS_BY_LEVEL = {
-  state: STATE_COLUMNS, town: TOWN_COLUMNS,
+  state: STATE_COLUMNS,
   store: STORE_AGG_COLUMNS, brand: BRAND_COLUMNS, competitors: COMPETITOR_COLUMNS,
 }
 const DEFAULT_SORT_BY_LEVEL = {
-  state: 'delta', county: 'mavis_rating', town: 'delta', store: 'avgRating',
+  state: 'delta', county: 'mavis_rating', town: 'mavis_rating', store: 'avgRating',
   brand: 'delta', competitors: 'avg_adj_rating',
 }
 
 export default function VoiceTable({ states }) {
   const [drill, setDrillRaw] = useState({ level: 'state' })
   const [countyMatrix, setCountyMatrix] = useState(null)
-  const [towns, setTowns] = useState(null)
+  const [townMatrix, setTownMatrix] = useState(null)
   const [locations, setLocations] = useState(null)
   const [brands, setBrands] = useState(null)
   const [competitors, setCompetitors] = useState(null)
@@ -261,8 +257,8 @@ export default function VoiceTable({ states }) {
       api.voiceCountyBrandMatrix(drill.state).then(setCountyMatrix).catch((e) => setError(e.message))
     }
     if (drill.level === 'town') {
-      setTowns(null); setError(null)
-      api.voiceCountyTowns(drill.state, drill.county_fips).then(setTowns).catch((e) => setError(e.message))
+      setTownMatrix(null); setError(null)
+      api.voiceCountyTownBrandMatrix(drill.state, drill.county_fips).then(setTownMatrix).catch((e) => setError(e.message))
     }
     if (drill.level === 'store') {
       setLocations(null); setError(null)
@@ -295,7 +291,7 @@ export default function VoiceTable({ states }) {
     filename = 'voice-states.csv'
   } else if (drill.level === 'county') {
     const brandNames = countyMatrix?.brands || []
-    columns = countyBrandColumns(brandNames)
+    columns = brandBreakdownColumns('COUNTY', 'county_name', brandNames)
     rows = (countyMatrix?.counties || []).map((r) => {
       const flattened = {}
       for (const name of brandNames) flattened[`pctAbove__${name}`] = r.brand_pct_above?.[name] ?? null
@@ -303,8 +299,13 @@ export default function VoiceTable({ states }) {
     })
     filename = `voice-${drill.state}-counties.csv`
   } else if (drill.level === 'town') {
-    columns = COLUMNS_BY_LEVEL.town
-    rows = (towns || []).map((r) => ({ ...r, avgReviewsPerStore: r.n_mavis_locations ? r.total_mavis_reviews / r.n_mavis_locations : null }))
+    const brandNames = townMatrix?.brands || []
+    columns = brandBreakdownColumns('TOWN', 'city', brandNames)
+    rows = (townMatrix?.towns || []).map((r) => {
+      const flattened = {}
+      for (const name of brandNames) flattened[`pctAbove__${name}`] = r.brand_pct_above?.[name] ?? null
+      return { ...r, ...flattened, avgReviewsPerStore: r.n_mavis_locations ? r.total_mavis_reviews / r.n_mavis_locations : null }
+    })
     filename = `voice-${drill.state}-${drill.county_fips}-towns.csv`
   } else if (drill.level === 'store') {
     columns = COLUMNS_BY_LEVEL.store
@@ -351,7 +352,7 @@ export default function VoiceTable({ states }) {
 
   const loading =
     (drill.level === 'county' && !error && countyMatrix === null) ||
-    (drill.level === 'town' && !error && towns === null) ||
+    (drill.level === 'town' && !error && townMatrix === null) ||
     (drill.level === 'store' && !error && locations === null) ||
     (drill.level === 'brand' && !error && brands === null) ||
     (drill.level === 'competitors' && !error && competitors === null)

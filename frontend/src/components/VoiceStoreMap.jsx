@@ -60,14 +60,14 @@ function TooltipContent({ loc }) {
       <div>Rating {loc.raw_rating != null ? loc.raw_rating.toFixed(2) : '—'} ({fmtNum(loc.review_count)} reviews)</div>
       {loc.family === 'mavis' && (
         loc.delta === null || loc.delta === undefined ? (
-          <div style={{ color: MUTED }}>No competitors in this town to benchmark against</div>
+          <div style={{ color: MUTED }}>No town average to benchmark against</div>
         ) : (
           <>
             <div style={{ color: loc.delta >= 0 ? GREEN : ROSE, fontWeight: 600 }}>
-              {loc.delta >= 0 ? '+' : ''}{loc.delta.toFixed(2)} stars vs. town competitor benchmark ({loc.comp_benchmark_rating?.toFixed(2)})
+              {loc.delta >= 0 ? '+' : ''}{loc.delta.toFixed(2)} stars vs. town average ({loc.comp_benchmark_rating?.toFixed(2)})
             </div>
             {loc.low_comparability && (
-              <div style={{ color: MUTED }}>Low comparability - only {loc.n_competitors_in_ring} competitor(s) in this town</div>
+              <div style={{ color: MUTED }}>Low comparability - only {loc.n_competitors_in_ring} store(s) in this town</div>
             )}
           </>
         )

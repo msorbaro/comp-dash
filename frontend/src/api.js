@@ -51,4 +51,6 @@ export const api = {
   voiceMainBrandTowns: (brandId, state, countyFips) =>
     get(`/voice/main-brand/towns?brand_id=${brandId}&state=${encodeURIComponent(state)}${countyFips ? `&county_fips=${encodeURIComponent(countyFips)}` : ''}`),
   voiceCountyBrandMatrix: (state) => get(`/voice/county-brand-matrix?state=${encodeURIComponent(state)}`),
+  voiceCountyTownBrandMatrix: (state, countyFips) =>
+    get(`/voice/county-town-brand-matrix?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}`),
 }

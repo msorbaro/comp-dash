@@ -796,6 +796,12 @@ def get_county_brand_matrix(state: str):
     return _clean(voice_data.county_brand_matrix(state))
 
 
+# Same breakdown, one level down - one row per town within a single county.
+@app.get("/api/voice/county-town-brand-matrix")
+def get_county_town_brand_matrix(state: str, county_fips: str):
+    return _clean(voice_data.county_town_brand_matrix(state, county_fips))
+
+
 def _warm_cache_loop():
     # On a CPU-throttled free-tier host, the expensive pages (Landscape,
     # the "Our Brands" rollup, each own brand) are too slow to compute

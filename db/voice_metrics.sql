@@ -50,18 +50,27 @@ CROSS JOIN global_mean g;
 CREATE UNIQUE INDEX ON voice.location_adjusted_ratings (location_id);
 CREATE INDEX ON voice.location_adjusted_ratings (family);
 
--- 4b: for each Mavis location, benchmark against every competitor location
--- in the SAME TOWN (state + city), weighted by competitor review count so a
--- busy competitor counts more than a dead one. Changed from a 15-mile
--- haversine ring to a same-town comparison per instruction ("delta should
--- be calculated for now as the store rating - town average") - simpler,
--- and avoids the ring's own edge cases (a store near a town line drawing
--- competitors from a neighboring town, or a rural store with no
--- competitors within 15mi at all). {ring_radius_km}/ring_radius_miles are
--- no longer used here - kept in config for now in case this reverts.
--- n_competitors_in_ring/low_comparability keep their field names (many
--- consumers reference them) but now mean "in this town", not "within
--- 15mi" - still flags fewer than 3 as thin evidence, per spec.
+-- 4b: for each Mavis location, benchmark against the average RAW rating of
+-- EVERY rated location - Mavis and competitor alike, including the store
+-- itself - in the SAME TOWN (state + city), weighted by review count so a
+-- busy store counts more than a dead one. "delta should be calculated for
+-- now as the store rating - town average" (instruction) means literally
+-- that: a store's own raw rating minus the town's own raw average, not a
+-- competitor-only pool and not the shrinkage-adjusted rating - so this
+-- joins to ALL families (not just 'competitor') and uses raw_rating (not
+-- adj_rating) on both sides. Two consequences worth knowing: (1) the join
+-- always matches at least the store's own row, so comp_benchmark_rating
+-- and delta are never NULL anymore (previously a Mavis location in a town
+-- with zero same-city competitors got dropped from every rollup below -
+-- e.g. 3 of Citrus County FL's 4 Mavis towns were silently missing this
+-- way); (2) a lone store in a town is being compared partly against
+-- itself, which is intentional - "the average rating of stores in the
+-- town" includes every store that's actually in the town.
+-- {ring_radius_km}/ring_radius_miles are no longer used here - kept in
+-- config in case this reverts. n_competitors_in_ring/low_comparability
+-- keep their field names (many consumers reference them) but now mean "any
+-- rated store in this town, including this one" - still flags fewer than 3
+-- as thin evidence, per spec.
 CREATE MATERIALIZED VIEW voice.location_benchmark AS
 SELECT
     m.location_id, m.brand_id, m.brand_name, m.location_name,
@@ -69,13 +78,12 @@ SELECT
     m.raw_rating AS mavis_raw_rating, m.adj_rating AS mavis_adj_rating, m.n AS mavis_n,
     count(c.location_id) AS n_competitors_in_ring,
     sum(c.n) AS comp_total_reviews,
-    (sum(c.n * c.adj_rating) / NULLIF(sum(c.n), 0)) AS comp_benchmark_rating,
-    (m.adj_rating - (sum(c.n * c.adj_rating) / NULLIF(sum(c.n), 0))) AS delta,
+    (sum(c.n * c.raw_rating) / NULLIF(sum(c.n), 0)) AS comp_benchmark_rating,
+    (m.raw_rating - (sum(c.n * c.raw_rating) / NULLIF(sum(c.n), 0))) AS delta,
     (count(c.location_id) < 3) AS low_comparability
 FROM voice.location_adjusted_ratings m
 LEFT JOIN voice.location_adjusted_ratings c
-    ON c.family = 'competitor'
-    AND c.state = m.state AND c.city = m.city
+    ON c.state = m.state AND c.city = m.city
 WHERE m.family = 'mavis'
 GROUP BY m.location_id, m.brand_id, m.brand_name, m.location_name, m.city, m.state, m.county_fips, m.county_name, m.lat, m.lng,
          m.raw_rating, m.adj_rating, m.n;
@@ -87,9 +95,11 @@ CREATE INDEX ON voice.location_benchmark (state, city);
 -- 4c + 4d: roll up to state, weighted by each location's own review count;
 -- suppressed = fewer than {min_locations_for_state} Mavis locations OR
 -- fewer than {min_reviews_for_state} total Mavis reviews in that state.
--- avg_comp_benchmark_rating is derived (avg_mavis - state_delta) rather than
--- recomputed separately, so the two numbers are always consistent with each
--- other by construction.
+-- avg_comp_benchmark_rating is a direct weighted average of each location's
+-- own (raw-rating-based) comp_benchmark_rating - not derived by subtracting
+-- state_delta from avg_mavis_adj_rating, since the former is on the raw
+-- scale and the latter (mavis' own rating) stays shrinkage-adjusted; mixing
+-- the two via subtraction would silently produce a nonsense number.
 CREATE MATERIALIZED VIEW voice.state_delta AS
 SELECT
     state,
@@ -98,8 +108,7 @@ SELECT
     sum(CASE WHEN low_comparability THEN 1 ELSE 0 END) AS n_low_comparability_locations,
     (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0)) AS avg_mavis_adj_rating,
     (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS state_delta,
-    (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0))
-        - (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
+    (sum(mavis_n * comp_benchmark_rating) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
     (count(*) < {min_locations_for_state} OR coalesce(sum(mavis_n), 0) < {min_reviews_for_state}) AS suppressed
 FROM voice.location_benchmark
 WHERE delta IS NOT NULL
@@ -121,8 +130,7 @@ SELECT
     sum(CASE WHEN low_comparability THEN 1 ELSE 0 END) AS n_low_comparability_locations,
     (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0)) AS avg_mavis_adj_rating,
     (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS town_delta,
-    (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0))
-        - (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
+    (sum(mavis_n * comp_benchmark_rating) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
     (count(*) < {min_locations_for_town} OR coalesce(sum(mavis_n), 0) < {min_reviews_for_town}) AS suppressed
 FROM voice.location_benchmark
 WHERE delta IS NOT NULL
@@ -144,8 +152,7 @@ SELECT
     sum(CASE WHEN low_comparability THEN 1 ELSE 0 END) AS n_low_comparability_locations,
     (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0)) AS avg_mavis_adj_rating,
     (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS county_delta,
-    (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0))
-        - (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
+    (sum(mavis_n * comp_benchmark_rating) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
     (count(*) < {min_locations_for_town} OR coalesce(sum(mavis_n), 0) < {min_reviews_for_town}) AS suppressed
 FROM voice.location_benchmark
 WHERE delta IS NOT NULL AND county_fips IS NOT NULL
@@ -166,8 +173,7 @@ SELECT
     sum(CASE WHEN low_comparability THEN 1 ELSE 0 END) AS n_low_comparability_locations,
     (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0)) AS avg_mavis_adj_rating,
     (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS town_delta,
-    (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0))
-        - (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
+    (sum(mavis_n * comp_benchmark_rating) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
     (count(*) < {min_locations_for_town} OR coalesce(sum(mavis_n), 0) < {min_reviews_for_town}) AS suppressed
 FROM voice.location_benchmark
 WHERE delta IS NOT NULL AND county_fips IS NOT NULL
@@ -188,8 +194,7 @@ SELECT
     sum(CASE WHEN low_comparability THEN 1 ELSE 0 END) AS n_low_comparability_locations,
     (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0)) AS avg_mavis_adj_rating,
     (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS state_delta,
-    (sum(mavis_n * mavis_adj_rating) / NULLIF(sum(mavis_n), 0))
-        - (sum(mavis_n * delta) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
+    (sum(mavis_n * comp_benchmark_rating) / NULLIF(sum(mavis_n), 0)) AS avg_comp_benchmark_rating,
     (count(*) < {min_locations_for_town} OR coalesce(sum(mavis_n), 0) < {min_reviews_for_town}) AS suppressed
 FROM voice.location_benchmark
 WHERE delta IS NOT NULL
