@@ -50,9 +50,5 @@ export const api = {
   voiceMainBrandCounties: (brandId, state) => get(`/voice/main-brand/counties?brand_id=${brandId}&state=${encodeURIComponent(state)}`),
   voiceMainBrandTowns: (brandId, state, countyFips) =>
     get(`/voice/main-brand/towns?brand_id=${brandId}&state=${encodeURIComponent(state)}${countyFips ? `&county_fips=${encodeURIComponent(countyFips)}` : ''}`),
-  voiceBrandFilteredStates: (brandId) => get(`/voice/brand-filtered/states?brand_id=${brandId}`),
-  voiceBrandFilteredCounties: (brandId, state) =>
-    get(`/voice/brand-filtered/counties?brand_id=${brandId}&state=${encodeURIComponent(state)}`),
-  voiceBrandFilteredTowns: (brandId, state, countyFips) =>
-    get(`/voice/brand-filtered/towns?brand_id=${brandId}&state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}`),
+  voiceCountyBrandMatrix: (state) => get(`/voice/county-brand-matrix?state=${encodeURIComponent(state)}`),
 }

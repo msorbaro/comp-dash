@@ -788,22 +788,12 @@ def get_main_brand_towns(brand_id: int, state: str, county_fips: str = None):
     return _clean(voice_data.main_brand_towns(brand_id, state, county_fips))
 
 
-# Table's "always on" brand dropdown at state/county/town level - a live,
-# any-brand rollup (avg rating, area benchmark, % above it, avg reviews per
-# store), distinct from the main-brand map's tiering.
-@app.get("/api/voice/brand-filtered/states")
-def get_brand_filtered_states(brand_id: int):
-    return _clean(voice_data.brand_filtered_states(brand_id))
-
-
-@app.get("/api/voice/brand-filtered/counties")
-def get_brand_filtered_counties(brand_id: int, state: str):
-    return _clean(voice_data.brand_filtered_counties(brand_id, state))
-
-
-@app.get("/api/voice/brand-filtered/towns")
-def get_brand_filtered_towns(brand_id: int, state: str, county_fips: str):
-    return _clean(voice_data.brand_filtered_towns(brand_id, state, county_fips))
+# County table's per-Mavis-banner breakdown - fixed columns (every Mavis
+# banner), each county row filled in for whichever banners actually operate
+# there.
+@app.get("/api/voice/county-brand-matrix")
+def get_county_brand_matrix(state: str):
+    return _clean(voice_data.county_brand_matrix(state))
 
 
 def _warm_cache_loop():
