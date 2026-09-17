@@ -788,6 +788,24 @@ def get_main_brand_towns(brand_id: int, state: str, county_fips: str = None):
     return _clean(voice_data.main_brand_towns(brand_id, state, county_fips))
 
 
+# Table's "always on" brand dropdown at state/county/town level - a live,
+# any-brand rollup (avg rating, area benchmark, % above it, avg reviews per
+# store), distinct from the main-brand map's tiering.
+@app.get("/api/voice/brand-filtered/states")
+def get_brand_filtered_states(brand_id: int):
+    return _clean(voice_data.brand_filtered_states(brand_id))
+
+
+@app.get("/api/voice/brand-filtered/counties")
+def get_brand_filtered_counties(brand_id: int, state: str):
+    return _clean(voice_data.brand_filtered_counties(brand_id, state))
+
+
+@app.get("/api/voice/brand-filtered/towns")
+def get_brand_filtered_towns(brand_id: int, state: str, county_fips: str):
+    return _clean(voice_data.brand_filtered_towns(brand_id, state, county_fips))
+
+
 def _warm_cache_loop():
     # On a CPU-throttled free-tier host, the expensive pages (Landscape,
     # the "Our Brands" rollup, each own brand) are too slow to compute

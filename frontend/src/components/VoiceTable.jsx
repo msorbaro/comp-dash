@@ -108,7 +108,7 @@ const STATE_COLUMNS = [
   { label: 'MAVIS RATING', width: '1fr', sortKey: 'mavis_rating', value: (r) => fmtRating(r.mavis_rating) },
   { label: 'COMPETITOR BENCHMARK', width: '1.1fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
   { label: 'DELTA', width: '0.8fr', sortKey: 'delta', value: (r) => fmtDelta(r.delta) },
-  { label: 'MAVIS REVIEWS', width: '1fr', sortKey: 'total_mavis_reviews', value: (r) => fmtNum(r.total_mavis_reviews) },
+  { label: 'AVG REVIEWS/STORE', width: '1.1fr', sortKey: 'avgReviewsPerStore', value: (r) => fmtNum(r.avgReviewsPerStore) },
   { label: 'STATUS', width: '1.4fr', sortKey: null, value: (r) => areaStatus(r, { noDataLabel: 'No pilot data' }) },
   { label: 'BY BRAND', width: '0.8fr', sortKey: null, action: 'brand', value: () => 'View ▸' },
   { label: 'BY COMPETITOR', width: '0.9fr', sortKey: null, action: 'competitors', value: () => 'View ▸' },
@@ -119,7 +119,7 @@ const COUNTY_COLUMNS = [
   { label: 'MAVIS RATING', width: '1fr', sortKey: 'mavis_rating', value: (r) => fmtRating(r.mavis_rating) },
   { label: 'COMPETITOR BENCHMARK', width: '1.1fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
   { label: 'DELTA', width: '0.8fr', sortKey: 'delta', value: (r) => fmtDelta(r.delta) },
-  { label: 'MAVIS REVIEWS', width: '1fr', sortKey: 'total_mavis_reviews', value: (r) => fmtNum(r.total_mavis_reviews) },
+  { label: 'AVG REVIEWS/STORE', width: '1.1fr', sortKey: 'avgReviewsPerStore', value: (r) => fmtNum(r.avgReviewsPerStore) },
   { label: 'STATUS', width: '1.3fr', sortKey: null, value: (r) => areaStatus(r) },
   { label: 'BY COMPETITOR', width: '0.9fr', sortKey: null, action: 'competitors', value: () => 'View ▸' },
 ]
@@ -129,7 +129,7 @@ const TOWN_COLUMNS = [
   { label: 'MAVIS RATING', width: '1.1fr', sortKey: 'mavis_rating', value: (r) => fmtRating(r.mavis_rating) },
   { label: 'COMPETITOR BENCHMARK', width: '1.2fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
   { label: 'DELTA', width: '0.9fr', sortKey: 'delta', value: (r) => fmtDelta(r.delta) },
-  { label: 'MAVIS REVIEWS', width: '1.1fr', sortKey: 'total_mavis_reviews', value: (r) => fmtNum(r.total_mavis_reviews) },
+  { label: 'AVG REVIEWS/STORE', width: '1.2fr', sortKey: 'avgReviewsPerStore', value: (r) => fmtNum(r.avgReviewsPerStore) },
   { label: 'STATUS', width: '1.6fr', sortKey: null, value: (r) => areaStatus(r) },
 ]
 
@@ -138,7 +138,7 @@ const BRAND_COLUMNS = [
   { label: 'MAVIS RATING', width: '1.2fr', sortKey: 'mavis_rating', value: (r) => fmtRating(r.mavis_rating) },
   { label: 'COMPETITOR BENCHMARK', width: '1.2fr', sortKey: 'comp_rating', value: (r) => fmtRating(r.comp_rating) },
   { label: 'DELTA', width: '1fr', sortKey: 'delta', value: (r) => fmtDelta(r.delta) },
-  { label: 'MAVIS REVIEWS', width: '1.1fr', sortKey: 'total_mavis_reviews', value: (r) => fmtNum(r.total_mavis_reviews) },
+  { label: 'AVG REVIEWS/STORE', width: '1.2fr', sortKey: 'avgReviewsPerStore', value: (r) => fmtNum(r.avgReviewsPerStore) },
   { label: 'LOCATIONS', width: '0.9fr', sortKey: 'n_mavis_locations', value: (r) => fmtNum(r.n_mavis_locations) },
   { label: 'STATUS', width: '1.6fr', sortKey: null, value: (r) => areaStatus(r) },
 ]
@@ -151,8 +151,29 @@ const COMPETITOR_COLUMNS = [
   { label: 'AVG RATING', width: '1.1fr', sortKey: 'avg_raw_rating', value: (r) => fmtRating(r.avg_raw_rating) },
   { label: 'ADJ. RATING', width: '1.1fr', sortKey: 'avg_adj_rating', value: (r) => fmtRating(r.avg_adj_rating) },
   { label: 'LOCATIONS', width: '0.9fr', sortKey: 'n_locations', value: (r) => fmtNum(r.n_locations) },
-  { label: 'REVIEWS', width: '1fr', sortKey: 'total_reviews', value: (r) => fmtNum(r.total_reviews) },
+  { label: 'AVG REVIEWS/STORE', width: '1.2fr', sortKey: 'avgReviewsPerStore', value: (r) => fmtNum(r.avgReviewsPerStore) },
 ]
+
+// Table's "always on" brand dropdown at state/county/town level - live,
+// works for any brand (Mavis or competitor) since it's just "this brand vs.
+// the area it's in," not the Mavis-vs-local-competitors delta concept.
+function brandFilteredColumns(level, stateNameByCode) {
+  const nameColumn =
+    level === 'state' ? { label: 'STATE', width: '1.7fr', sortKey: 'state', value: (r) => stateNameByCode[r.state] || r.state } :
+    level === 'county' ? { label: 'COUNTY', width: '1.7fr', sortKey: 'county_name', value: (r) => r.county_name } :
+    { label: 'TOWN', width: '2fr', sortKey: 'city', value: (r) => r.city }
+  return [
+    nameColumn,
+    { label: 'AVG RATING', width: '1fr', sortKey: 'avg_rating', value: (r) => fmtRating(r.avg_rating) },
+    { label: 'AREA AVG (ALL BRANDS)', width: '1.3fr', sortKey: null, value: (r) => fmtRating(r.area_avg_rating) },
+    {
+      label: '% LOCATIONS ABOVE AREA AVG', width: '1.5fr', sortKey: 'pct_above_area_avg',
+      value: (r) => (r.pct_above_area_avg === null || r.pct_above_area_avg === undefined ? '—' : `${Math.round(r.pct_above_area_avg * 100)}%`),
+    },
+    { label: 'AVG REVIEWS/STORE', width: '1.2fr', sortKey: 'avg_reviews_per_store', value: (r) => fmtNum(r.avg_reviews_per_store) },
+    { label: 'LOCATIONS', width: '0.8fr', sortKey: 'n_locations', value: (r) => fmtNum(r.n_locations) },
+  ]
+}
 
 // Store level is grouped by brand (one row per brand in this town, not per
 // location) - a brand with multiple locations here shows a review-weighted
@@ -165,7 +186,7 @@ const STORE_AGG_COLUMNS = [
   { label: 'AVG RATING', width: '1fr', sortKey: 'avgRating', value: (r) => fmtRating(r.avgRating) },
   { label: 'ADJ. RATING', width: '1fr', sortKey: 'avgAdjRating', value: (r) => fmtRating(r.avgAdjRating) },
   { label: 'DELTA', width: '0.9fr', sortKey: 'avgDelta', value: (r) => (r.family === 'mavis' ? fmtDelta(r.avgDelta) : '—') },
-  { label: 'REVIEWS', width: '0.9fr', sortKey: 'totalReviews', value: (r) => fmtNum(r.totalReviews) },
+  { label: 'AVG REVIEWS/STORE', width: '1.1fr', sortKey: 'avgReviewsPerStore', value: (r) => fmtNum(r.avgReviewsPerStore) },
   { label: 'LOCATIONS', width: '0.8fr', sortKey: 'n_locations', value: (r) => fmtNum(r.n_locations) },
   { label: 'NEIGHBORHOOD AVG', width: '1.2fr', sortKey: null, value: (r) => fmtRating(r.neighborhoodAvg) },
   {
@@ -213,18 +234,28 @@ export default function VoiceTable({ states }) {
   const [error, setError] = useState(null)
   const [sortKey, setSortKey] = useState('delta')
   const [sortDir, setSortDir] = useState('desc')
-  const [brandFilter, setBrandFilter] = useState('')
   const [familyFilter, setFamilyFilter] = useState('')
   const [expandedBrands, setExpandedBrands] = useState(() => new Set())
+
+  // The "always on" brand dropdown - persists across drill navigation
+  // (unlike familyFilter/expandedBrands, which are reset per-level in
+  // goDrill below), since picking a brand and then clicking through
+  // state -> county -> town should keep showing that same brand's numbers.
+  const [allBrandOptions, setAllBrandOptions] = useState([])
+  const [selectedBrandId, setSelectedBrandId] = useState('')
+  const [bfStates, setBfStates] = useState(null)
+  const [bfCounties, setBfCounties] = useState(null)
+  const [bfTowns, setBfTowns] = useState(null)
+
+  const selectedBrandName = allBrandOptions.find((b) => String(b.brand_id) === String(selectedBrandId))?.name || null
 
   // Centralizes every navigation: resets sort to a sensible default for the
   // new level's columns (the old sortKey often doesn't exist there) and
   // clears filters that don't apply at the destination.
   const goDrill = (target) => {
     setDrillRaw(target)
-    setSortKey(DEFAULT_SORT_BY_LEVEL[target.level] || null)
+    setSortKey(selectedBrandId ? 'avg_rating' : DEFAULT_SORT_BY_LEVEL[target.level] || null)
     setSortDir('desc')
-    setBrandFilter('')
     setFamilyFilter('')
     setExpandedBrands(new Set())
   }
@@ -237,6 +268,10 @@ export default function VoiceTable({ states }) {
       return next
     })
   }
+
+  useEffect(() => {
+    api.voiceBrandOptions().then(setAllBrandOptions).catch((e) => setError(e.message))
+  }, [])
 
   useEffect(() => {
     if (drill.level === 'county') {
@@ -264,71 +299,106 @@ export default function VoiceTable({ states }) {
     }
   }, [drill])
 
-  const rawStateName = states.find((s) => s.state === drill.state)?.state_name
+  useEffect(() => {
+    if (!selectedBrandId || drill.level !== 'state') return
+    setBfStates(null); setError(null)
+    api.voiceBrandFilteredStates(selectedBrandId).then(setBfStates).catch((e) => setError(e.message))
+  }, [selectedBrandId, drill.level])
 
-  const columns = COLUMNS_BY_LEVEL[drill.level]
-  let rows, filename
-  if (drill.level === 'state') {
-    rows = states.filter((s) => s.has_data)
-    filename = 'voice-states.csv'
-  } else if (drill.level === 'county') {
-    rows = counties || []
-    filename = `voice-${drill.state}-counties.csv`
-  } else if (drill.level === 'town') {
-    rows = towns || []
-    filename = `voice-${drill.state}-${drill.county_fips}-towns.csv`
-  } else if (drill.level === 'store') {
-    // "Neighborhood average" is the whole town's own weighted-average
-    // rating (every location, every brand, before any filter) - a fixed
-    // benchmark that shouldn't shift depending on what the user has
-    // filtered the table down to.
-    const neighborhoodAvg = weightedAvg(locations || [], 'raw_rating', 'review_count')
-    const filteredLocations = (locations || [])
-      .filter((r) => !brandFilter || r.brand === brandFilter)
-      .filter((r) => !familyFilter || r.family === familyFilter)
-    const byBrand = new Map()
-    for (const loc of filteredLocations) {
-      if (!byBrand.has(loc.brand)) byBrand.set(loc.brand, [])
-      byBrand.get(loc.brand).push(loc)
+  useEffect(() => {
+    if (!selectedBrandId || drill.level !== 'county') return
+    setBfCounties(null); setError(null)
+    api.voiceBrandFilteredCounties(selectedBrandId, drill.state).then(setBfCounties).catch((e) => setError(e.message))
+  }, [selectedBrandId, drill.level, drill.state])
+
+  useEffect(() => {
+    if (!selectedBrandId || drill.level !== 'town') return
+    setBfTowns(null); setError(null)
+    api.voiceBrandFilteredTowns(selectedBrandId, drill.state, drill.county_fips).then(setBfTowns).catch((e) => setError(e.message))
+  }, [selectedBrandId, drill.level, drill.state, drill.county_fips])
+
+  const rawStateName = states.find((s) => s.state === drill.state)?.state_name
+  const stateNameByCode = useMemo(() => Object.fromEntries(states.map((s) => [s.state, s.state_name])), [states])
+  const brandFilterActive = !!selectedBrandId && ['state', 'county', 'town'].includes(drill.level)
+
+  let columns, rows, filename
+  if (brandFilterActive) {
+    columns = brandFilteredColumns(drill.level, stateNameByCode)
+    if (drill.level === 'state') {
+      rows = bfStates || []
+      filename = `voice-brand${selectedBrandId}-states.csv`
+    } else if (drill.level === 'county') {
+      rows = bfCounties || []
+      filename = `voice-brand${selectedBrandId}-${drill.state}-counties.csv`
+    } else {
+      rows = bfTowns || []
+      filename = `voice-brand${selectedBrandId}-${drill.state}-${drill.county_fips}-towns.csv`
     }
-    rows = [...byBrand.entries()].map(([brand, locs]) => {
-      const nAbove = neighborhoodAvg === null
-        ? null
-        : locs.filter((l) => l.raw_rating !== null && l.raw_rating !== undefined && l.raw_rating > neighborhoodAvg).length
-      return {
-        brand, family: locs[0].family, locations: locs, n_locations: locs.length,
-        totalReviews: locs.reduce((sum, l) => sum + (l.review_count || 0), 0),
-        avgRating: weightedAvg(locs, 'raw_rating', 'review_count'),
-        avgAdjRating: weightedAvg(locs, 'adj_rating', 'review_count'),
-        avgDelta: weightedAvg(locs, 'delta', 'review_count'),
-        neighborhoodAvg,
-        pctAboveAvg: nAbove === null ? null : nAbove / locs.length,
-      }
-    })
-    filename = `voice-${drill.state}-${drill.county_fips}-${drill.city || 'all'}-stores.csv`
-  } else if (drill.level === 'brand') {
-    rows = brands || []
-    filename = `voice-${drill.state}-brands.csv`
   } else {
-    rows = competitors || []
-    filename = drill.county_fips
-      ? `voice-${drill.state}-${drill.county_fips}-competitors.csv`
-      : `voice-${drill.state}-competitors.csv`
+    columns = COLUMNS_BY_LEVEL[drill.level]
+    if (drill.level === 'state') {
+      rows = states.filter((s) => s.has_data).map((r) => ({ ...r, avgReviewsPerStore: r.n_mavis_locations ? r.total_mavis_reviews / r.n_mavis_locations : null }))
+      filename = 'voice-states.csv'
+    } else if (drill.level === 'county') {
+      rows = (counties || []).map((r) => ({ ...r, avgReviewsPerStore: r.n_mavis_locations ? r.total_mavis_reviews / r.n_mavis_locations : null }))
+      filename = `voice-${drill.state}-counties.csv`
+    } else if (drill.level === 'town') {
+      rows = (towns || []).map((r) => ({ ...r, avgReviewsPerStore: r.n_mavis_locations ? r.total_mavis_reviews / r.n_mavis_locations : null }))
+      filename = `voice-${drill.state}-${drill.county_fips}-towns.csv`
+    } else if (drill.level === 'store') {
+      // "Neighborhood average" is the whole town's own weighted-average
+      // rating (every location, every brand, before any filter) - a fixed
+      // benchmark that shouldn't shift depending on what the user has
+      // filtered the table down to.
+      const neighborhoodAvg = weightedAvg(locations || [], 'raw_rating', 'review_count')
+      const filteredLocations = (locations || [])
+        .filter((r) => !selectedBrandName || r.brand === selectedBrandName)
+        .filter((r) => !familyFilter || r.family === familyFilter)
+      const byBrand = new Map()
+      for (const loc of filteredLocations) {
+        if (!byBrand.has(loc.brand)) byBrand.set(loc.brand, [])
+        byBrand.get(loc.brand).push(loc)
+      }
+      rows = [...byBrand.entries()].map(([brand, locs]) => {
+        const nAbove = neighborhoodAvg === null
+          ? null
+          : locs.filter((l) => l.raw_rating !== null && l.raw_rating !== undefined && l.raw_rating > neighborhoodAvg).length
+        const totalReviews = locs.reduce((sum, l) => sum + (l.review_count || 0), 0)
+        return {
+          brand, family: locs[0].family, locations: locs, n_locations: locs.length,
+          totalReviews, avgReviewsPerStore: totalReviews / locs.length,
+          avgRating: weightedAvg(locs, 'raw_rating', 'review_count'),
+          avgAdjRating: weightedAvg(locs, 'adj_rating', 'review_count'),
+          avgDelta: weightedAvg(locs, 'delta', 'review_count'),
+          neighborhoodAvg,
+          pctAboveAvg: nAbove === null ? null : nAbove / locs.length,
+        }
+      })
+      filename = `voice-${drill.state}-${drill.county_fips}-${drill.city || 'all'}-stores.csv`
+    } else if (drill.level === 'brand') {
+      rows = (brands || []).map((r) => ({ ...r, avgReviewsPerStore: r.n_mavis_locations ? r.total_mavis_reviews / r.n_mavis_locations : null }))
+      filename = `voice-${drill.state}-brands.csv`
+    } else {
+      rows = (competitors || []).map((r) => ({ ...r, avgReviewsPerStore: r.n_locations ? r.total_reviews / r.n_locations : null }))
+      filename = drill.county_fips
+        ? `voice-${drill.state}-${drill.county_fips}-competitors.csv`
+        : `voice-${drill.state}-competitors.csv`
+    }
   }
 
-  const loading = (
-    (drill.level === 'county' && !error && counties === null) ||
-    (drill.level === 'town' && !error && towns === null) ||
-    (drill.level === 'store' && !error && locations === null) ||
-    (drill.level === 'brand' && !error && brands === null) ||
-    (drill.level === 'competitors' && !error && competitors === null)
-  )
+  const loading = brandFilterActive
+    ? (drill.level === 'state' && bfStates === null) ||
+      (drill.level === 'county' && bfCounties === null) ||
+      (drill.level === 'town' && bfTowns === null)
+    : (
+      (drill.level === 'county' && !error && counties === null) ||
+      (drill.level === 'town' && !error && towns === null) ||
+      (drill.level === 'store' && !error && locations === null) ||
+      (drill.level === 'brand' && !error && brands === null) ||
+      (drill.level === 'competitors' && !error && competitors === null)
+    )
 
   const sorted = useMemo(() => sortRows(rows, sortKey, sortDir), [rows, sortKey, sortDir])
-  const brandOptions = useMemo(() => {
-    if (drill.level !== 'store' || !locations) return []
-    return [...new Set(locations.map((r) => r.brand))].sort()
-  }, [drill.level, locations])
 
   const handleSort = (key) => {
     if (sortKey === key) setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
@@ -360,8 +430,38 @@ export default function VoiceTable({ states }) {
 
   const showFamilyFilter = drill.level === 'store'
 
+  const mavisOptions = allBrandOptions.filter((b) => b.family === 'mavis')
+  const competitorOptions = allBrandOptions.filter((b) => b.family === 'competitor')
+
   return (
     <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, paddingBottom: 10, borderBottom: `1px solid ${SLATE_200}` }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: MUTED }}>BRAND</span>
+        <select
+          value={selectedBrandId}
+          onChange={(e) => {
+            const val = e.target.value
+            setSelectedBrandId(val)
+            setSortKey(val ? 'avg_rating' : DEFAULT_SORT_BY_LEVEL[drill.level] || null)
+            setSortDir('desc')
+          }}
+          style={{ fontSize: 12, padding: '6px 10px', borderRadius: 8, border: `1px solid ${SLATE_200}`, fontFamily: 'Poppins, sans-serif', color: INK_TEXT, minWidth: 220 }}
+        >
+          <option value="">All Mavis brands combined</option>
+          <optgroup label="Mavis brands">
+            {mavisOptions.map((b) => <option key={b.brand_id} value={b.brand_id}>{b.name}</option>)}
+          </optgroup>
+          <optgroup label="Competitors">
+            {competitorOptions.map((b) => <option key={b.brand_id} value={b.brand_id}>{b.name}</option>)}
+          </optgroup>
+        </select>
+        {selectedBrandId && (
+          <span style={{ fontSize: 11, color: MUTED }}>
+            Showing {selectedBrandName} vs. the area it's in - not the portfolio-vs-competitors view.
+          </span>
+        )}
+      </div>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
         <div style={{ fontSize: 11, color: MUTED }}>
           {crumbs.map((c, i) => (
@@ -387,16 +487,6 @@ export default function VoiceTable({ states }) {
               <option value="">Mavis + competitors</option>
               <option value="mavis">Mavis only</option>
               <option value="competitor">Competitors only</option>
-            </select>
-          )}
-          {drill.level === 'store' && brandOptions.length > 0 && (
-            <select
-              value={brandFilter}
-              onChange={(e) => setBrandFilter(e.target.value)}
-              style={{ fontSize: 11, padding: '5px 8px', borderRadius: 8, border: `1px solid ${SLATE_200}`, fontFamily: 'Poppins, sans-serif', color: INK_TEXT }}
-            >
-              <option value="">All brands</option>
-              {brandOptions.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           )}
           <button onClick={() => downloadCsv(sorted, columns, filename)} style={pillStyle(false)}>Export CSV</button>

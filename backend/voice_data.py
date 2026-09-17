@@ -45,6 +45,83 @@ def list_brands() -> list:
     return [{"brand_id": bid, "name": name, "family": family} for bid, name, family in rows]
 
 
+def _locations_for_scope(state: str = None, county_fips: str = None) -> list:
+    """Every rated location (any brand), state-wide or narrowed to one
+    county - the raw material for the table's "always on" brand dropdown at
+    state/county/town level. A live query, not a materialized view (the
+    brand is chosen at runtime, same reasoning as the map's main-brand mode)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT state, county_fips, county_name, city, brand_id, n, raw_rating
+                FROM voice.location_adjusted_ratings
+                WHERE county_fips IS NOT NULL
+                  AND (%(state)s::text IS NULL OR state = %(state)s::text)
+                  AND (%(county_fips)s::text IS NULL OR county_fips = %(county_fips)s::text)
+            """, {"state": state, "county_fips": county_fips})
+            rows = cur.fetchall()
+    return [
+        {"state": s, "county_fips": cf, "county_name": cn, "city": c, "brand_id": bid, "n": n, "raw_rating": float(rr)}
+        for s, cf, cn, c, bid, n, rr in rows
+    ]
+
+
+def _weighted_avg(items, value_key, weight_key="n"):
+    total_w = sum(i[weight_key] for i in items)
+    return sum(i[weight_key] * i[value_key] for i in items) / total_w if total_w else None
+
+
+def brand_filtered_areas(brand_id: int, group_keys: list, state: str = None, county_fips: str = None) -> list:
+    """One row per distinct area (group_keys = ["state"], ["county_fips",
+    "county_name"], or ["city"]) where the given brand has a location: its
+    own avg rating and avg reviews/store there, the area's own all-brand
+    average rating (a benchmark that doesn't shift with which brand is
+    selected), and what % of the brand's own locations in that area beat
+    it. Works identically for a Mavis banner or a named competitor - unlike
+    delta (specifically "Mavis vs. its local competitors"), this is just
+    "this brand vs. the area it's in," so it doesn't care which family the
+    brand belongs to."""
+    all_locs = _locations_for_scope(state, county_fips)
+    by_area = {}
+    for loc in all_locs:
+        by_area.setdefault(tuple(loc[k] for k in group_keys), []).append(loc)
+
+    out = []
+    for key, locs in by_area.items():
+        brand_locs = [l for l in locs if l["brand_id"] == brand_id]
+        if not brand_locs:
+            continue
+        area_avg = _weighted_avg(locs, "raw_rating")
+        n_above = (
+            sum(1 for l in brand_locs if area_avg is not None and l["raw_rating"] > area_avg)
+            if area_avg is not None else None
+        )
+        total_reviews = sum(l["n"] for l in brand_locs)
+        row = dict(zip(group_keys, key))
+        row.update({
+            "n_locations": len(brand_locs),
+            "total_reviews": total_reviews,
+            "avg_reviews_per_store": total_reviews / len(brand_locs),
+            "avg_rating": _weighted_avg(brand_locs, "raw_rating"),
+            "area_avg_rating": area_avg,
+            "pct_above_area_avg": (n_above / len(brand_locs)) if n_above is not None else None,
+        })
+        out.append(row)
+    return out
+
+
+def brand_filtered_states(brand_id: int) -> list:
+    return brand_filtered_areas(brand_id, ["state"])
+
+
+def brand_filtered_counties(brand_id: int, state: str) -> list:
+    return brand_filtered_areas(brand_id, ["county_fips", "county_name"], state=state)
+
+
+def brand_filtered_towns(brand_id: int, state: str, county_fips: str) -> list:
+    return brand_filtered_areas(brand_id, ["city"], state=state, county_fips=county_fips)
+
+
 def _tier(brand_rating, avg_other, max_other):
     """green: beats every other location in the town (or there's no
     competition at all to lose to). yellow: beats the town average but not
