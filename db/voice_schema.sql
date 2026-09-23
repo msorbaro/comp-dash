@@ -63,6 +63,28 @@ CREATE TABLE IF NOT EXISTS voice.rating_snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_voice_rating_snapshots_location ON voice.rating_snapshots(location_id, captured_at);
 
+-- Tracks which (brand, city) Yelp rating searches have already completed -
+-- same resumability purpose as location_census_runs below, one row per
+-- (brand, city) group voice/yelp_ratings.py has searched (Yelp has no
+-- place ID we can seed from, so this is searched by name+city instead of
+-- crawled by ID like the Google census).
+CREATE TABLE IF NOT EXISTS voice.yelp_rating_runs (
+    brand_id      INTEGER NOT NULL REFERENCES voice.brands(brand_id) ON DELETE CASCADE,
+    city          TEXT NOT NULL,
+    state         TEXT NOT NULL,
+    completed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (brand_id, city, state)
+);
+
+-- Same as yelp_rating_runs above, for voice/apple_maps_ratings.py.
+CREATE TABLE IF NOT EXISTS voice.apple_maps_rating_runs (
+    brand_id      INTEGER NOT NULL REFERENCES voice.brands(brand_id) ON DELETE CASCADE,
+    city          TEXT NOT NULL,
+    state         TEXT NOT NULL,
+    completed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (brand_id, city, state)
+);
+
 -- Tracks which (brand, state) location-census combos have already completed
 -- a full fetch+write - not the same as "produced results": a combo that
 -- legitimately found zero locations (e.g. a brand with no stores in that
@@ -75,6 +97,84 @@ CREATE TABLE IF NOT EXISTS voice.location_census_runs (
     state         TEXT NOT NULL,
     completed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (brand_id, state)
+);
+
+-- Phase 3: individual review text + date, per location - not just the
+-- aggregate rating_snapshots above. Sentiment columns are nullable and
+-- filled by a separate classification pass (categorize/sentiment.py), not
+-- at scrape time, so the (paid) scrape and the (separately paid) LLM pass
+-- stay independently retryable - a failed/rerun classification pass never
+-- re-pays for the Apify scrape.
+CREATE TABLE IF NOT EXISTS voice.reviews (
+    review_id            BIGSERIAL PRIMARY KEY,
+    location_id          INTEGER NOT NULL REFERENCES voice.locations(location_id) ON DELETE CASCADE,
+    source                TEXT NOT NULL DEFAULT 'google_maps',
+    source_review_id      TEXT NOT NULL,
+    rating                SMALLINT,
+    review_date           TIMESTAMPTZ,
+    text                  TEXT,
+    language              TEXT,
+    sentiment             TEXT CHECK (sentiment IN ('positive', 'neutral', 'negative')),
+    sentiment_confidence  TEXT,
+    sentiment_reason      TEXT,
+    fetched_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (source, source_review_id)
+);
+CREATE INDEX IF NOT EXISTS idx_voice_reviews_location ON voice.reviews(location_id, review_date);
+CREATE INDEX IF NOT EXISTS idx_voice_reviews_date ON voice.reviews(review_date);
+
+-- Tracks which review-scrape batches (a batch = one Apify actor call over a
+-- chunk of place IDs) have already completed, same crash-safety purpose as
+-- location_census_runs above - a killed run resumes without re-paying for
+-- batches already fetched. batch_key is a stable hash of the sorted place
+-- IDs in that batch, computed by voice/reviews.py.
+CREATE TABLE IF NOT EXISTS voice.review_scrape_runs (
+    batch_key     TEXT PRIMARY KEY,
+    n_places      INTEGER NOT NULL,
+    n_reviews     INTEGER NOT NULL,
+    completed_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Reddit brand mentions (posts + comments) - not state-scoped like the
+-- tables above, since a Reddit mention isn't tied to a physical location
+-- the way a review is; one row per post or comment, one search per
+-- tracked brand (Mavis banners AND competitors). Sentiment/theme columns
+-- are nullable and filled by a separate classification pass
+-- (categorize/reddit_sentiment.py), same reasoning as voice.reviews - the
+-- (paid) scrape and the (separately paid) LLM pass stay independently
+-- retryable.
+CREATE TABLE IF NOT EXISTS voice.reddit_mentions (
+    mention_id        BIGSERIAL PRIMARY KEY,
+    brand_id          INTEGER NOT NULL REFERENCES voice.brands(brand_id) ON DELETE CASCADE,
+    reddit_id         TEXT NOT NULL,
+    type              TEXT NOT NULL CHECK (type IN ('post', 'comment')),
+    parent_post_id    TEXT,
+    subreddit         TEXT,
+    author            TEXT,
+    title             TEXT,
+    text              TEXT,
+    score             INTEGER,
+    num_comments      INTEGER,
+    permalink         TEXT,
+    created_at        TIMESTAMPTZ,
+    is_relevant       BOOLEAN,
+    sentiment         TEXT CHECK (sentiment IN ('positive', 'neutral', 'negative')),
+    sentiment_confidence TEXT,
+    theme             TEXT,
+    comparison_brand_id INTEGER REFERENCES voice.brands(brand_id),
+    reason            TEXT,
+    fetched_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (reddit_id, type)
+);
+CREATE INDEX IF NOT EXISTS idx_voice_reddit_mentions_brand ON voice.reddit_mentions(brand_id);
+CREATE INDEX IF NOT EXISTS idx_voice_reddit_mentions_created ON voice.reddit_mentions(created_at);
+
+-- Tracks which brands' Reddit searches have already completed - same
+-- resumability purpose as the other _runs tables. Not state-scoped.
+CREATE TABLE IF NOT EXISTS voice.reddit_scrape_runs (
+    brand_id      INTEGER NOT NULL REFERENCES voice.brands(brand_id) ON DELETE CASCADE,
+    completed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (brand_id)
 );
 
 -- Town (Census "place") boundary polygons, for the map's county -> town

@@ -224,7 +224,7 @@ function UnmappedTownList({ towns, onSelectTown, byMbTown }) {
   )
 }
 
-export default function VoiceMap({ states }) {
+export default function VoiceMap({ states, source = 'google_maps' }) {
   const [selectedState, setSelectedState] = useState(null) // { code, name }
   const [selectedCounty, setSelectedCounty] = useState(null) // { fips, name }
   const [townChoice, setTownChoice] = useState(null) // null = still choosing, { city: string|null }
@@ -252,43 +252,50 @@ export default function VoiceMap({ states }) {
   useEffect(() => {
     if (!selectedState) return
     setCounties(null); setError(null)
-    api.voiceCounties(selectedState.code).then(setCounties).catch((e) => setError(e.message))
-  }, [selectedState])
+    api.voiceCounties(selectedState.code, source).then(setCounties).catch((e) => setError(e.message))
+  }, [selectedState, source])
 
   useEffect(() => {
     if (!selectedState || !selectedCounty) return
     setTowns(null); setError(null)
-    api.voiceCountyTowns(selectedState.code, selectedCounty.fips).then(setTowns).catch((e) => setError(e.message))
-  }, [selectedState, selectedCounty])
+    api.voiceCountyTowns(selectedState.code, selectedCounty.fips, source).then(setTowns).catch((e) => setError(e.message))
+  }, [selectedState, selectedCounty, source])
 
   useEffect(() => {
     if (!selectedState || !selectedCounty || townChoice === null) return
     setLocations(null); setError(null)
-    api.voiceCountyLocations(selectedState.code, selectedCounty.fips, townChoice.city || undefined)
+    api.voiceCountyLocations(selectedState.code, selectedCounty.fips, townChoice.city || undefined, source)
       .then(setLocations).catch((e) => setError(e.message))
-  }, [selectedState, selectedCounty, townChoice])
+  }, [selectedState, selectedCounty, townChoice, source])
 
   useEffect(() => {
-    api.voiceBrandOptions().then(setBrandOptions).catch((e) => setError(e.message))
+    api.voiceBrandOptions().then((opts) => {
+      setBrandOptions(opts)
+      // Mavis Discount Tire is the default lens - biggest single Mavis
+      // banner by location count, so it's the most useful "main brand" view
+      // to land on rather than the blended whole-portfolio default.
+      const defaultBrand = opts.find((b) => b.name === 'Mavis Discount Tire / Mavis Tires and Brakes')
+      if (defaultBrand) setMainBrandId(defaultBrand.brand_id)
+    }).catch((e) => setError(e.message))
   }, [])
 
   useEffect(() => {
     if (!mainBrandId) { setMbStates(null); return }
     setMbStates(null); setError(null)
-    api.voiceMainBrandStates(mainBrandId).then(setMbStates).catch((e) => setError(e.message))
-  }, [mainBrandId])
+    api.voiceMainBrandStates(mainBrandId, source).then(setMbStates).catch((e) => setError(e.message))
+  }, [mainBrandId, source])
 
   useEffect(() => {
     if (!mainBrandId || !selectedState) return
     setMbCounties(null); setError(null)
-    api.voiceMainBrandCounties(mainBrandId, selectedState.code).then(setMbCounties).catch((e) => setError(e.message))
-  }, [mainBrandId, selectedState])
+    api.voiceMainBrandCounties(mainBrandId, selectedState.code, source).then(setMbCounties).catch((e) => setError(e.message))
+  }, [mainBrandId, selectedState, source])
 
   useEffect(() => {
     if (!mainBrandId || !selectedState || !selectedCounty) return
     setMbTowns(null); setError(null)
-    api.voiceMainBrandTowns(mainBrandId, selectedState.code, selectedCounty.fips).then(setMbTowns).catch((e) => setError(e.message))
-  }, [mainBrandId, selectedState, selectedCounty])
+    api.voiceMainBrandTowns(mainBrandId, selectedState.code, selectedCounty.fips, source).then(setMbTowns).catch((e) => setError(e.message))
+  }, [mainBrandId, selectedState, selectedCounty, source])
 
   const byStateName = useMemo(() => Object.fromEntries(states.map((s) => [s.state_name, s])), [states])
   const byCountyFips = useMemo(() => Object.fromEntries((counties || []).map((c) => [c.county_fips, c])), [counties])

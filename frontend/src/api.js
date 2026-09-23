@@ -35,22 +35,49 @@ export const api = {
   messagingStudy: () => get('/landscape/messaging-study'),
   compare: (a, b) => get(`/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
   refresh: () => fetch(BASE + '/refresh', { method: 'POST' }),
-  voiceStates: () => get('/voice/states'),
-  voiceBrands: (state) => get(`/voice/brands?state=${encodeURIComponent(state)}`),
-  voiceCounties: (state) => get(`/voice/counties?state=${encodeURIComponent(state)}`),
-  voiceCountyLocations: (state, countyFips, city) =>
-    get(`/voice/county-locations?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}${city ? `&city=${encodeURIComponent(city)}` : ''}`),
-  voiceCountyTowns: (state, countyFips) =>
-    get(`/voice/county-towns?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}`),
-  voiceCompetitorsByState: (state) => get(`/voice/competitors-by-state?state=${encodeURIComponent(state)}`),
-  voiceCompetitorsByCounty: (state, countyFips) =>
-    get(`/voice/competitors-by-county?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}`),
+  // `source` ('google_maps' | 'apple_maps') is appended to every call that
+  // reads the ratings materialized-view chain, defaulted so existing call
+  // sites that don't pass it keep working (matches the backend's own
+  // `source: str = "google_maps"` defaults).
+  voiceStates: (source = 'google_maps') => get(`/voice/states?source=${source}`),
+  voiceBrands: (state, source = 'google_maps') => get(`/voice/brands?state=${encodeURIComponent(state)}&source=${source}`),
+  voiceCounties: (state, source = 'google_maps') => get(`/voice/counties?state=${encodeURIComponent(state)}&source=${source}`),
+  voiceCountyLocations: (state, countyFips, city, source = 'google_maps') =>
+    get(`/voice/county-locations?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}${city ? `&city=${encodeURIComponent(city)}` : ''}&source=${source}`),
+  voiceCountyTowns: (state, countyFips, source = 'google_maps') =>
+    get(`/voice/county-towns?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}&source=${source}`),
+  voiceCompetitorsByState: (state, source = 'google_maps') => get(`/voice/competitors-by-state?state=${encodeURIComponent(state)}&source=${source}`),
+  voiceCompetitorsByCounty: (state, countyFips, source = 'google_maps') =>
+    get(`/voice/competitors-by-county?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}&source=${source}`),
   voiceBrandOptions: () => get('/voice/brand-options'),
-  voiceMainBrandStates: (brandId) => get(`/voice/main-brand/states?brand_id=${brandId}`),
-  voiceMainBrandCounties: (brandId, state) => get(`/voice/main-brand/counties?brand_id=${brandId}&state=${encodeURIComponent(state)}`),
-  voiceMainBrandTowns: (brandId, state, countyFips) =>
-    get(`/voice/main-brand/towns?brand_id=${brandId}&state=${encodeURIComponent(state)}${countyFips ? `&county_fips=${encodeURIComponent(countyFips)}` : ''}`),
-  voiceCountyBrandMatrix: (state) => get(`/voice/county-brand-matrix?state=${encodeURIComponent(state)}`),
-  voiceCountyTownBrandMatrix: (state, countyFips) =>
-    get(`/voice/county-town-brand-matrix?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}`),
+  voiceMainBrandStates: (brandId, source = 'google_maps') => get(`/voice/main-brand/states?brand_id=${brandId}&source=${source}`),
+  voiceMainBrandCounties: (brandId, state, source = 'google_maps') =>
+    get(`/voice/main-brand/counties?brand_id=${brandId}&state=${encodeURIComponent(state)}&source=${source}`),
+  voiceMainBrandTowns: (brandId, state, countyFips, source = 'google_maps') =>
+    get(`/voice/main-brand/towns?brand_id=${brandId}&state=${encodeURIComponent(state)}${countyFips ? `&county_fips=${encodeURIComponent(countyFips)}` : ''}&source=${source}`),
+  voiceMainBrandNationalSummary: (source = 'google_maps') => get(`/voice/main-brand/national-summary?source=${source}`),
+  voiceMainBrandLocations: (brandId, source = 'google_maps') => get(`/voice/main-brand/locations?brand_id=${brandId}&source=${source}`),
+  voiceCountyBrandMatrix: (state, source = 'google_maps') => get(`/voice/county-brand-matrix?state=${encodeURIComponent(state)}&source=${source}`),
+  voiceCountyTownBrandMatrix: (state, countyFips, source = 'google_maps') =>
+    get(`/voice/county-town-brand-matrix?state=${encodeURIComponent(state)}&county_fips=${encodeURIComponent(countyFips)}&source=${source}`),
+  voiceStateTowns: (state, source = 'google_maps') => get(`/voice/state-towns?state=${encodeURIComponent(state)}&source=${source}`),
+  voiceRollup: (state, city, source = 'google_maps') =>
+    get(`/voice/rollup?${state ? `state=${encodeURIComponent(state)}` : ''}${city ? `&city=${encodeURIComponent(city)}` : ''}&source=${source}`),
+  voiceHeadToHead: (state, city, source = 'google_maps') =>
+    get(`/voice/head-to-head?${state ? `state=${encodeURIComponent(state)}` : ''}${city ? `&city=${encodeURIComponent(city)}` : ''}&source=${source}`),
+  voiceReviewTrend: (state = 'TX') => get(`/voice/review-trend?state=${encodeURIComponent(state)}`),
+  voiceReviewSample: (state, { brand, sentiment, month, limit = 30 } = {}) =>
+    get(`/voice/review-sample?state=${encodeURIComponent(state)}` +
+      (brand ? `&brand=${encodeURIComponent(brand)}` : '') +
+      (sentiment ? `&sentiment=${encodeURIComponent(sentiment)}` : '') +
+      (month ? `&month=${encodeURIComponent(month)}` : '') +
+      `&limit=${limit}`),
+  voiceRedditSummary: () => get('/voice/reddit-summary'),
+  voiceRedditComparisons: () => get('/voice/reddit-comparisons'),
+  voiceRedditSample: ({ brand, sentiment, theme, limit = 30 } = {}) =>
+    get(`/voice/reddit-sample?` +
+      (brand ? `brand=${encodeURIComponent(brand)}&` : '') +
+      (sentiment ? `sentiment=${encodeURIComponent(sentiment)}&` : '') +
+      (theme ? `theme=${encodeURIComponent(theme)}&` : '') +
+      `limit=${limit}`),
 }

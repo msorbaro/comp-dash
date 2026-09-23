@@ -133,6 +133,34 @@ export const CHANNEL_COLORS = {
   homepage: '#64748B',
 }
 
+// 5-band rating-mix scale (under 3.5 -> 4.7+), red to green, built from
+// tokens already used elsewhere for the same red/yellow/green meaning
+// rather than a separate bespoke palette.
+export const RATING_MIX_COLORS = [ROSE, AMBER, TIER_YELLOW, TIER_LIGHT_GREEN, GREEN]
+export const RATING_MIX_LABELS = ['under 3.5', '3.5–4.0', '4.0–4.4', '4.4–4.7', '4.7+']
+
+// Centered divergent bar geometry for a gap/delta value against a benchmark
+// (Customer Voice's rollup and drill-tree views) - `scale` is the delta
+// magnitude (in rating stars) that fills the available room, `center` is
+// where 0 sits on the track, both as a % of track width. Returns inline
+// style fragments for the filled bar and its label, callers spread them in.
+export function deltaBarStyle(gap, { scale = 1, center = 50 } = {}) {
+  if (gap === null || gap === undefined) {
+    return { barColor: MUTED, barLeft: `${center}%`, barW: '0%', labelLeft: `${center}%`, labelTx: 'none', labelPad: '0' }
+  }
+  const room = gap >= 0 ? 100 - center : center
+  const w = Math.min(1, Math.abs(gap) / scale) * room * 0.86
+  const color = Math.abs(gap) < 0.03 ? MUTED : gap >= 0 ? GREEN : ROSE
+  return {
+    barColor: color,
+    barLeft: `${gap >= 0 ? center : center - w}%`,
+    barW: `${w}%`,
+    labelLeft: `${gap >= 0 ? center + w : center - w}%`,
+    labelTx: gap >= 0 ? 'none' : 'translateX(-100%)',
+    labelPad: gap >= 0 ? '0 0 0 6px' : '0 6px 0 0',
+  }
+}
+
 export function fmtNum(n) {
   if (n === null || n === undefined) return '—'
   if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'

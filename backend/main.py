@@ -734,38 +734,71 @@ def refresh_cache():
 # expensive pandas aggregation like the messaging side, so no _cached_page
 # wrapper is needed.
 @app.get("/api/voice/states")
-def get_voice_states():
-    return _clean(voice_data.state_summary())
+def get_voice_states(source: str = "google_maps"):
+    return _clean(voice_data.state_summary(source))
 
 
 @app.get("/api/voice/brands")
-def get_voice_brands(state: str):
-    return _clean(voice_data.brand_state_summary(state))
+def get_voice_brands(state: str, source: str = "google_maps"):
+    return _clean(voice_data.brand_state_summary(state, source))
 
 
 @app.get("/api/voice/counties")
-def get_voice_counties(state: str):
-    return _clean(voice_data.county_summary(state))
+def get_voice_counties(state: str, source: str = "google_maps"):
+    return _clean(voice_data.county_summary(state, source))
 
 
 @app.get("/api/voice/county-locations")
-def get_voice_county_locations(state: str, county_fips: str, city: str = None):
-    return _clean(voice_data.county_locations(state, county_fips, city))
+def get_voice_county_locations(state: str, county_fips: str, city: str = None, source: str = "google_maps"):
+    return _clean(voice_data.county_locations(state, county_fips, city, source))
 
 
 @app.get("/api/voice/county-towns")
-def get_voice_county_towns(state: str, county_fips: str):
-    return _clean(voice_data.county_town_summary(state, county_fips))
+def get_voice_county_towns(state: str, county_fips: str, source: str = "google_maps"):
+    return _clean(voice_data.county_town_summary(state, county_fips, source))
+
+
+@app.get("/api/voice/state-towns")
+def get_voice_state_towns(state: str, source: str = "google_maps"):
+    return _clean(voice_data.state_towns(state, source))
+
+
+# Cross-brand league table (Mavis banners + every named competitor, one
+# ranked list) - nationwide by default, narrowed by state and/or city.
+@app.get("/api/voice/rollup")
+def get_voice_rollup(state: str = None, city: str = None, source: str = "google_maps"):
+    return _clean(voice_data.brand_rollup(state, city, source))
+
+
+# Review-level dataset (Phase 3) - monthly volume + sentiment trend, and a
+# browsable sample of the underlying review text.
+@app.get("/api/voice/review-trend")
+def get_voice_review_trend(state: str = "TX"):
+    return _clean(voice_data.review_trend(state))
+
+
+@app.get("/api/voice/review-sample")
+def get_voice_review_sample(state: str = "TX", brand: str = None, sentiment: str = None, month: str = None, limit: int = 30):
+    return _clean(voice_data.review_sample(state, brand, sentiment, month, limit))
+
+
+# Head-to-head grid: every Mavis banner vs. every named competitor, cell =
+# the gap computed only over states (or towns) where both operate. Filtered
+# to a state and/or town, the sharing unit narrows automatically (see
+# voice_data.head_to_head's docstring).
+@app.get("/api/voice/head-to-head")
+def get_voice_head_to_head(state: str = None, city: str = None, source: str = "google_maps"):
+    return _clean(voice_data.head_to_head(state, city, source))
 
 
 @app.get("/api/voice/competitors-by-state")
-def get_voice_competitors_by_state(state: str):
-    return _clean(voice_data.competitor_state_summary(state))
+def get_voice_competitors_by_state(state: str, source: str = "google_maps"):
+    return _clean(voice_data.competitor_state_summary(state, source))
 
 
 @app.get("/api/voice/competitors-by-county")
-def get_voice_competitors_by_county(state: str, county_fips: str):
-    return _clean(voice_data.competitor_county_summary(state, county_fips))
+def get_voice_competitors_by_county(state: str, county_fips: str, source: str = "google_maps"):
+    return _clean(voice_data.competitor_county_summary(state, county_fips, source))
 
 
 @app.get("/api/voice/brand-options")
@@ -774,32 +807,63 @@ def get_voice_brand_options():
 
 
 @app.get("/api/voice/main-brand/states")
-def get_main_brand_states(brand_id: int):
-    return _clean(voice_data.main_brand_states(brand_id))
+def get_main_brand_states(brand_id: int, source: str = "google_maps"):
+    return _clean(voice_data.main_brand_states(brand_id, source))
 
 
 @app.get("/api/voice/main-brand/counties")
-def get_main_brand_counties(brand_id: int, state: str):
-    return _clean(voice_data.main_brand_counties(brand_id, state))
+def get_main_brand_counties(brand_id: int, state: str, source: str = "google_maps"):
+    return _clean(voice_data.main_brand_counties(brand_id, state, source))
 
 
 @app.get("/api/voice/main-brand/towns")
-def get_main_brand_towns(brand_id: int, state: str, county_fips: str = None):
-    return _clean(voice_data.main_brand_towns(brand_id, state, county_fips))
+def get_main_brand_towns(brand_id: int, state: str, county_fips: str = None, source: str = "google_maps"):
+    return _clean(voice_data.main_brand_towns(brand_id, state, county_fips, source))
+
+
+# Root level + drill data for the table's brand-rooted tree (brand -> state
+# -> county -> town -> store) - distinct from the map's tier-based
+# main-brand endpoints above, this carries real rating/benchmark/gap
+# numbers, not a green/yellow/red tier.
+@app.get("/api/voice/main-brand/national-summary")
+def get_main_brand_national_summary(source: str = "google_maps"):
+    return _clean(voice_data.main_brand_national_summary(source))
+
+
+@app.get("/api/voice/main-brand/locations")
+def get_main_brand_locations(brand_id: int, source: str = "google_maps"):
+    return _clean(voice_data.main_brand_locations(brand_id, source))
 
 
 # County table's per-Mavis-banner breakdown - fixed columns (every Mavis
 # banner), each county row filled in for whichever banners actually operate
 # there.
 @app.get("/api/voice/county-brand-matrix")
-def get_county_brand_matrix(state: str):
-    return _clean(voice_data.county_brand_matrix(state))
+def get_county_brand_matrix(state: str, source: str = "google_maps"):
+    return _clean(voice_data.county_brand_matrix(state, source))
 
 
 # Same breakdown, one level down - one row per town within a single county.
 @app.get("/api/voice/county-town-brand-matrix")
-def get_county_town_brand_matrix(state: str, county_fips: str):
-    return _clean(voice_data.county_town_brand_matrix(state, county_fips))
+def get_county_town_brand_matrix(state: str, county_fips: str, source: str = "google_maps"):
+    return _clean(voice_data.county_town_brand_matrix(state, county_fips, source))
+
+
+# Reddit brand-mention dataset - scraped + classified separately from the
+# ratings chain above (no `source` param, unrelated data).
+@app.get("/api/voice/reddit-summary")
+def get_voice_reddit_summary():
+    return _clean(voice_data.reddit_brand_summary())
+
+
+@app.get("/api/voice/reddit-comparisons")
+def get_voice_reddit_comparisons():
+    return _clean(voice_data.reddit_comparisons())
+
+
+@app.get("/api/voice/reddit-sample")
+def get_voice_reddit_sample(brand: str = None, sentiment: str = None, theme: str = None, limit: int = 30):
+    return _clean(voice_data.reddit_sample(brand, sentiment, theme, limit))
 
 
 def _warm_cache_loop():
