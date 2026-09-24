@@ -86,7 +86,7 @@ export default function Voice() {
           ) : view === 'h2h' ? (
             <VoiceHeadToHead states={states} source={source} />
           ) : view === 'reviews' ? (
-            <VoiceReviewTrend states={states} />
+            <VoiceReviewTrend />
           ) : (
             <VoiceRedditMentions />
           )}

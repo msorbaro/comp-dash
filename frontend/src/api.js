@@ -65,19 +65,45 @@ export const api = {
     get(`/voice/rollup?${state ? `state=${encodeURIComponent(state)}` : ''}${city ? `&city=${encodeURIComponent(city)}` : ''}&source=${source}`),
   voiceHeadToHead: (state, city, source = 'google_maps') =>
     get(`/voice/head-to-head?${state ? `state=${encodeURIComponent(state)}` : ''}${city ? `&city=${encodeURIComponent(city)}` : ''}&source=${source}`),
-  voiceReviewTrend: (state = 'TX') => get(`/voice/review-trend?state=${encodeURIComponent(state)}`),
-  voiceReviewSample: (state, { brand, sentiment, month, limit = 30 } = {}) =>
+  voiceReviewStates: () => get('/voice/review-states'),
+  voiceReviewTowns: (state = 'TX') => get(`/voice/review-towns?state=${encodeURIComponent(state)}`),
+  voiceReviewTrend: (state = 'TX', city, splitCompetitors = false) =>
+    get(`/voice/review-trend?state=${encodeURIComponent(state)}` +
+      (city ? `&city=${encodeURIComponent(city)}` : '') +
+      `&split_competitors=${splitCompetitors}`),
+  voiceReviewYoy: (state = 'TX', city, splitCompetitors = false) =>
+    get(`/voice/review-yoy?state=${encodeURIComponent(state)}` +
+      (city ? `&city=${encodeURIComponent(city)}` : '') +
+      `&split_competitors=${splitCompetitors}`),
+  voiceReviewThemeMix: (state = 'TX', { city, brand } = {}) =>
+    get(`/voice/review-theme-mix?state=${encodeURIComponent(state)}` +
+      (city ? `&city=${encodeURIComponent(city)}` : '') +
+      (brand ? `&brand=${encodeURIComponent(brand)}` : '')),
+  // A live per-call summary (not precomputed), so give it a longer retry
+  // budget than the default get() - it's a real-time Haiku call, not a
+  // cached page, and 503s here would just mean "still starting up."
+  voiceReviewThemeComplaints: (theme, state = 'TX', { city, brand, sentiment = 'negative' } = {}) =>
+    get(`/voice/review-theme-complaints?theme=${encodeURIComponent(theme)}&state=${encodeURIComponent(state)}&sentiment=${sentiment}` +
+      (city ? `&city=${encodeURIComponent(city)}` : '') +
+      (brand ? `&brand=${encodeURIComponent(brand)}` : ''), { retries: 3, retryDelayMs: 1500 }),
+  voiceReviewSample: (state, { city, brand, sentiment, month, theme, rating, limit = 30 } = {}) =>
     get(`/voice/review-sample?state=${encodeURIComponent(state)}` +
+      (city ? `&city=${encodeURIComponent(city)}` : '') +
       (brand ? `&brand=${encodeURIComponent(brand)}` : '') +
       (sentiment ? `&sentiment=${encodeURIComponent(sentiment)}` : '') +
       (month ? `&month=${encodeURIComponent(month)}` : '') +
+      (theme ? `&theme=${encodeURIComponent(theme)}` : '') +
+      (rating ? `&rating=${rating}` : '') +
       `&limit=${limit}`),
   voiceRedditSummary: () => get('/voice/reddit-summary'),
-  voiceRedditComparisons: () => get('/voice/reddit-comparisons'),
-  voiceRedditSample: ({ brand, sentiment, theme, limit = 30 } = {}) =>
+  voiceRedditSample: ({ brand, sentiment, theme, aspect, limit = 30 } = {}) =>
     get(`/voice/reddit-sample?` +
       (brand ? `brand=${encodeURIComponent(brand)}&` : '') +
       (sentiment ? `sentiment=${encodeURIComponent(sentiment)}&` : '') +
       (theme ? `theme=${encodeURIComponent(theme)}&` : '') +
+      (aspect ? `aspect=${encodeURIComponent(aspect)}&` : '') +
       `limit=${limit}`),
+  voiceRedditThemeMix: (brand) => get(`/voice/reddit-theme-mix${brand ? `?brand=${encodeURIComponent(brand)}` : ''}`),
+  voiceRedditThemeComplaints: (theme, brand, sentiment = 'negative') =>
+    get(`/voice/reddit-theme-complaints?theme=${encodeURIComponent(theme)}&sentiment=${sentiment}${brand ? `&brand=${encodeURIComponent(brand)}` : ''}`, { retries: 3, retryDelayMs: 1500 }),
 }

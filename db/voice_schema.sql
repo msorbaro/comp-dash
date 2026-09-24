@@ -123,6 +123,25 @@ CREATE TABLE IF NOT EXISTS voice.reviews (
 CREATE INDEX IF NOT EXISTS idx_voice_reviews_location ON voice.reviews(location_id, review_date);
 CREATE INDEX IF NOT EXISTS idx_voice_reviews_date ON voice.reviews(review_date);
 
+-- `themed_at` marks a review as processed by categorize/review_themes.py,
+-- independent of whether it produced any theme rows below - a genuinely
+-- theme-less review (e.g. "Good.") must still count as "done" or it would
+-- get re-submitted (and re-paid for) on every subsequent run.
+ALTER TABLE voice.reviews ADD COLUMN IF NOT EXISTS themed_at TIMESTAMPTZ;
+
+-- Multi-label theme extraction from review text (categorize/review_themes.py) -
+-- a many-to-one companion to voice.reviews rather than columns on it, since
+-- one review can surface several themes (e.g. "fast service but overpriced"
+-- = speed_wait_time:positive AND price_value:negative), each with its OWN
+-- sentiment that can differ from the review's overall sentiment.
+CREATE TABLE IF NOT EXISTS voice.review_themes (
+    review_id        BIGINT NOT NULL REFERENCES voice.reviews(review_id) ON DELETE CASCADE,
+    theme            TEXT NOT NULL,
+    theme_sentiment  TEXT NOT NULL CHECK (theme_sentiment IN ('positive', 'neutral', 'negative')),
+    PRIMARY KEY (review_id, theme)
+);
+CREATE INDEX IF NOT EXISTS idx_voice_review_themes_theme ON voice.review_themes(theme);
+
 -- Tracks which review-scrape batches (a batch = one Apify actor call over a
 -- chunk of place IDs) have already completed, same crash-safety purpose as
 -- location_census_runs above - a killed run resumes without re-paying for
@@ -168,6 +187,24 @@ CREATE TABLE IF NOT EXISTS voice.reddit_mentions (
 );
 CREATE INDEX IF NOT EXISTS idx_voice_reddit_mentions_brand ON voice.reddit_mentions(brand_id);
 CREATE INDEX IF NOT EXISTS idx_voice_reddit_mentions_created ON voice.reddit_mentions(created_at);
+
+-- `aspect_themed_at` marks a mention as processed by
+-- categorize/reddit_mention_themes.py - separate from the `theme` column
+-- above (that one is post-PURPOSE: complaint/question/recommendation/etc.,
+-- filled by categorize/reddit_sentiment.py). This pass is aspect-based
+-- (price, speed, honesty, etc. - same taxonomy as categorize/review_themes.py,
+-- since it's the same tire/auto-repair domain), and a mention can surface
+-- several aspects at once, hence the separate many-to-one table below
+-- rather than another column here.
+ALTER TABLE voice.reddit_mentions ADD COLUMN IF NOT EXISTS aspect_themed_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS voice.reddit_mention_themes (
+    mention_id       BIGINT NOT NULL REFERENCES voice.reddit_mentions(mention_id) ON DELETE CASCADE,
+    theme            TEXT NOT NULL,
+    theme_sentiment  TEXT NOT NULL CHECK (theme_sentiment IN ('positive', 'neutral', 'negative')),
+    PRIMARY KEY (mention_id, theme)
+);
+CREATE INDEX IF NOT EXISTS idx_voice_reddit_mention_themes_theme ON voice.reddit_mention_themes(theme);
 
 -- Tracks which brands' Reddit searches have already completed - same
 -- resumability purpose as the other _runs tables. Not state-scoped.

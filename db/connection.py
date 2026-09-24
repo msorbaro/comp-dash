@@ -40,7 +40,14 @@ def get_conn():
     try:
         for attempt in range(_MAX_CONNECT_ATTEMPTS):
             try:
-                conn = psycopg.connect(url, autocommit=False, prepare_threshold=None)
+                # connect_timeout matters here, not just as a nicety - a
+                # network blip with NO timeout set has hung this call for
+                # 20+ minutes straight multiple times in production use
+                # (confirmed live: the same URL with an explicit timeout
+                # fails fast and a bare retry immediately after succeeds in
+                # under 2s), silently blocking whatever job called get_conn()
+                # instead of ever reaching the retry loop below.
+                conn = psycopg.connect(url, autocommit=False, prepare_threshold=None, connect_timeout=15)
                 break
             except psycopg.Error as e:
                 last_err = e

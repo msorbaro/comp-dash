@@ -7,6 +7,7 @@ directly in Supabase Studio, not a second implementation of the math.
 """
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -381,13 +382,47 @@ def head_to_head(state: str = None, city: str = None, source: str = "google_maps
     return {"granularity": granularity, "columns": columns, "rows": rows_out}
 
 
-def review_trend(state: str = "TX") -> dict:
-    """Monthly review volume + sentiment mix from the review-level dataset
-    (voice.reviews, Phase 3) - one series per Mavis banner, plus one
-    aggregate "Competitors" series, matching the brand-rooted convention
-    used elsewhere in this app (the Table view's drill tree, the Head to
-    Head grid). Powers the Reviews trend page - "are we trending up or
-    down," per the user's original ask."""
+def review_states() -> list:
+    """States that actually have review-level data (voice.reviews) - distinct
+    from the ratings chain's `has_data` (location_adjusted_ratings), since
+    the review-text scrape was Texas-only so far and the two datasets can
+    diverge. Powers the Reviews page's state filter."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT vl.state FROM voice.reviews r
+                JOIN voice.locations vl ON vl.location_id = r.location_id
+                ORDER BY vl.state
+            """)
+            rows = cur.fetchall()
+    return [{"state": s, "state_name": STATE_NAME_BY_CODE.get(s, s)} for (s,) in rows]
+
+
+def review_towns(state: str = "TX") -> list:
+    """Distinct cities with review data in this state - for the Reviews
+    page's city filter. Independent of the ratings chain's state_towns
+    (different underlying table, same reasoning as review_states above)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT vl.city FROM voice.reviews r
+                JOIN voice.locations vl ON vl.location_id = r.location_id
+                WHERE vl.state = %s AND vl.city IS NOT NULL
+                ORDER BY vl.city
+            """, (state,))
+            rows = cur.fetchall()
+    return [r[0] for r in rows]
+
+
+def review_trend(state: str = "TX", city: str = None, split_competitors: bool = False) -> dict:
+    """Monthly review volume + sentiment mix + star-rating histogram from
+    the review-level dataset (voice.reviews, Phase 3) - one series per Mavis
+    banner, plus (by default) one aggregate "Competitors" series; pass
+    split_competitors=True to keep each competitor as its own series
+    instead of folding them together. Optionally narrowed to one city.
+    Powers the Reviews trend page - "are we trending up or down," per the
+    user's original ask - and doubles as the source for the star-histogram
+    chart (n_1..n_5 per point) so that chart needs no separate query."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -395,33 +430,49 @@ def review_trend(state: str = "TX") -> dict:
                        count(*) AS n, avg(r.rating) AS avg_rating,
                        sum(CASE WHEN r.sentiment = 'positive' THEN 1 ELSE 0 END) AS n_pos,
                        sum(CASE WHEN r.sentiment = 'neutral' THEN 1 ELSE 0 END) AS n_neu,
-                       sum(CASE WHEN r.sentiment = 'negative' THEN 1 ELSE 0 END) AS n_neg
+                       sum(CASE WHEN r.sentiment = 'negative' THEN 1 ELSE 0 END) AS n_neg,
+                       sum(CASE WHEN r.rating = 1 THEN 1 ELSE 0 END) AS n_1,
+                       sum(CASE WHEN r.rating = 2 THEN 1 ELSE 0 END) AS n_2,
+                       sum(CASE WHEN r.rating = 3 THEN 1 ELSE 0 END) AS n_3,
+                       sum(CASE WHEN r.rating = 4 THEN 1 ELSE 0 END) AS n_4,
+                       sum(CASE WHEN r.rating = 5 THEN 1 ELSE 0 END) AS n_5
                 FROM voice.reviews r
                 JOIN voice.locations vl ON vl.location_id = r.location_id
                 JOIN voice.brands vb ON vb.brand_id = vl.brand_id
-                WHERE vl.state = %s AND r.review_date IS NOT NULL
+                WHERE vl.state = %(state)s AND r.review_date IS NOT NULL
+                  AND (%(city)s::text IS NULL OR vl.city = %(city)s::text)
                 GROUP BY vb.family, vb.name, month
                 ORDER BY month
-            """, (state,))
+            """, {"state": state, "city": city})
             rows = cur.fetchall()
 
     by_series: dict = {}
-    for family, name, month, n, avg_rating, n_pos, n_neu, n_neg in rows:
-        series_name = name if family == "mavis" else "Competitors"
-        bucket = by_series.setdefault(series_name, {})
-        m = bucket.setdefault(month, {"n": 0, "rating_sum": 0.0, "n_pos": 0, "n_neu": 0, "n_neg": 0})
+    for family, name, month, n, avg_rating, n_pos, n_neu, n_neg, n_1, n_2, n_3, n_4, n_5 in rows:
+        series_name = name if (family == "mavis" or split_competitors) else "Competitors"
+        bucket = by_series.setdefault(series_name, {"mavis": family == "mavis"})
+        m = bucket.setdefault(month, {
+            "n": 0, "rating_sum": 0.0, "n_pos": 0, "n_neu": 0, "n_neg": 0,
+            "n_1": 0, "n_2": 0, "n_3": 0, "n_4": 0, "n_5": 0,
+        })
         m["n"] += n
         m["rating_sum"] += float(avg_rating) * n if avg_rating is not None else 0.0
         m["n_pos"] += n_pos
         m["n_neu"] += n_neu
         m["n_neg"] += n_neg
+        m["n_1"] += n_1
+        m["n_2"] += n_2
+        m["n_3"] += n_3
+        m["n_4"] += n_4
+        m["n_5"] += n_5
 
-    mavis_names = sorted(name for name in by_series if name != "Competitors")
-    ordered_names = mavis_names + (["Competitors"] if "Competitors" in by_series else [])
+    mavis_names = sorted(name for name, b in by_series.items() if b["mavis"])
+    other_names = sorted(name for name, b in by_series.items() if not b["mavis"])
+    ordered_names = mavis_names + other_names
 
     series_out = []
     for series_name in ordered_names:
-        months = by_series[series_name]
+        bucket = by_series[series_name]
+        months = {k: v for k, v in bucket.items() if k != "mavis"}
         points = []
         for month in sorted(months):
             m = months[month]
@@ -431,20 +482,172 @@ def review_trend(state: str = "TX") -> dict:
                 "pct_positive": m["n_pos"] / m["n"] if m["n"] else None,
                 "pct_neutral": m["n_neu"] / m["n"] if m["n"] else None,
                 "pct_negative": m["n_neg"] / m["n"] if m["n"] else None,
+                "n_1": m["n_1"], "n_2": m["n_2"], "n_3": m["n_3"], "n_4": m["n_4"], "n_5": m["n_5"],
             })
-        series_out.append({"name": series_name, "mavis": series_name != "Competitors", "points": points})
+        series_out.append({"name": series_name, "mavis": bucket["mavis"], "points": points})
 
-    return {"state": state, "series": series_out}
+    return {"state": state, "city": city, "series": series_out}
+
+
+def review_yoy(state: str = "TX", city: str = None, split_competitors: bool = False) -> dict:
+    """Year-over-year comparison, month by month, for the trailing 12
+    months - "how did this month do vs. the same month last year" per the
+    user's own framing. Pulls 24 months of raw data (this year's 12 +
+    last year's matching 12) and pairs them client-side rather than trying
+    to express the year-over-year join in SQL."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT vb.family, vb.name, date_trunc('month', r.review_date) AS month,
+                       count(*) AS n, avg(r.rating) AS avg_rating
+                FROM voice.reviews r
+                JOIN voice.locations vl ON vl.location_id = r.location_id
+                JOIN voice.brands vb ON vb.brand_id = vl.brand_id
+                WHERE vl.state = %(state)s AND r.review_date IS NOT NULL
+                  AND r.review_date >= date_trunc('month', now()) - interval '23 months'
+                  AND (%(city)s::text IS NULL OR vl.city = %(city)s::text)
+                GROUP BY vb.family, vb.name, month
+                ORDER BY month
+            """, {"state": state, "city": city})
+            rows = cur.fetchall()
+
+    by_series: dict = {}
+    for family, name, month, n, avg_rating in rows:
+        series_name = name if (family == "mavis" or split_competitors) else "Competitors"
+        bucket = by_series.setdefault(series_name, {"mavis": family == "mavis", "months": {}})
+        # Keyed by plain date, not the raw tz-aware timestamptz Postgres
+        # returns - comparing a tz-aware datetime to the naive dt.date keys
+        # built below always came back False (never raised, just silently
+        # never matched), so every month showed up as 0 vs 0. Confirmed
+        # live: Brakes Plus had 1,182 September reviews in review_trend but
+        # 0/0 here before this fix.
+        m = bucket["months"].setdefault(month.date(), {"n": 0, "rating_sum": 0.0})
+        m["n"] += n
+        m["rating_sum"] += float(avg_rating) * n if avg_rating is not None else 0.0
+
+    # The trailing 12 calendar months as of now, oldest first - each paired
+    # with the same month one year earlier.
+    this_month_start = dt.date.today().replace(day=1)
+    last_12 = []
+    y, m = this_month_start.year, this_month_start.month
+    for _ in range(12):
+        last_12.append(dt.date(y, m, 1))
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    last_12.reverse()
+
+    def _prior_year(d):
+        return dt.date(d.year - 1, d.month, 1)
+
+    mavis_names = sorted(name for name, b in by_series.items() if b["mavis"])
+    other_names = sorted(name for name, b in by_series.items() if not b["mavis"])
+
+    series_out = []
+    for series_name in mavis_names + other_names:
+        bucket = by_series[series_name]
+        months = bucket["months"]
+        points = []
+        for month_date in last_12:
+            cur_key = month_date
+            prior_key = _prior_year(month_date)
+            cur_m = months.get(cur_key)
+            prior_m = months.get(prior_key)
+            cur_n, cur_rating = (cur_m["n"], cur_m["rating_sum"] / cur_m["n"]) if cur_m else (0, None)
+            prior_n, prior_rating = (prior_m["n"], prior_m["rating_sum"] / prior_m["n"]) if prior_m else (0, None)
+            points.append({
+                "month": month_date.isoformat(),
+                "n_this_year": cur_n, "n_last_year": prior_n,
+                "pct_change_n": ((cur_n - prior_n) / prior_n) if prior_n else None,
+                "avg_rating_this_year": cur_rating, "avg_rating_last_year": prior_rating,
+                "delta_rating": (cur_rating - prior_rating) if (cur_rating is not None and prior_rating is not None) else None,
+            })
+        series_out.append({"name": series_name, "mavis": bucket["mavis"], "points": points})
+
+    return {"state": state, "city": city, "series": series_out}
+
+
+def review_theme_mix(state: str = "TX", city: str = None, brand: str = None) -> list:
+    """Sentiment mix broken down by theme (price, speed, friendliness, etc. -
+    see categorize/review_themes.py for the taxonomy) instead of just
+    overall positive/neutral/negative - "what aspects are people speaking
+    about positively or negatively," per the user's own framing. Not time-
+    bucketed (themes are sparse enough per review that a monthly split
+    would be too thin to read), scoped to a state/city/brand instead."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT rt.theme, rt.theme_sentiment, count(*)
+                FROM voice.review_themes rt
+                JOIN voice.reviews r ON r.review_id = rt.review_id
+                JOIN voice.locations vl ON vl.location_id = r.location_id
+                JOIN voice.brands vb ON vb.brand_id = vl.brand_id
+                WHERE vl.state = %(state)s
+                  AND (%(city)s::text IS NULL OR vl.city = %(city)s::text)
+                  AND (%(brand)s::text IS NULL OR vb.name = %(brand)s::text)
+                GROUP BY rt.theme, rt.theme_sentiment
+            """, {"state": state, "city": city, "brand": brand})
+            rows = cur.fetchall()
+
+    by_theme: dict = {}
+    for theme, sentiment, n in rows:
+        bucket = by_theme.setdefault(theme, {"positive": 0, "neutral": 0, "negative": 0})
+        bucket[sentiment] = n
+
+    out = [
+        {"theme": theme, **counts, "total": counts["positive"] + counts["neutral"] + counts["negative"]}
+        for theme, counts in by_theme.items()
+    ]
+    out.sort(key=lambda r: r["total"], reverse=True)
+    return out
+
+
+def review_theme_texts(
+    theme: str, state: str = "TX", city: str = None, brand: str = None, sentiment: str = "negative", limit: int = 25,
+) -> list:
+    """Real review text for one theme at one theme-sentiment ('negative' for
+    complaints, 'positive' for praise), scoped exactly like review_theme_mix
+    above - the raw material for a live summary call
+    (categorize/theme_summary.py). Stays a plain SELECT per this module's
+    own contract (no LLM calls in this file); the summary itself is
+    computed by the caller in backend/main.py."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT r.text FROM voice.review_themes rt
+                JOIN voice.reviews r ON r.review_id = rt.review_id
+                JOIN voice.locations vl ON vl.location_id = r.location_id
+                JOIN voice.brands vb ON vb.brand_id = vl.brand_id
+                WHERE rt.theme = %(theme)s AND rt.theme_sentiment = %(sentiment)s
+                  AND vl.state = %(state)s AND r.text IS NOT NULL
+                  AND (%(city)s::text IS NULL OR vl.city = %(city)s::text)
+                  AND (%(brand)s::text IS NULL OR vb.name = %(brand)s::text)
+                ORDER BY random() LIMIT %(limit)s
+            """, {"theme": theme, "state": state, "city": city, "brand": brand, "sentiment": sentiment, "limit": limit})
+            rows = cur.fetchall()
+    return [r[0] for r in rows]
 
 
 def review_sample(
-    state: str = "TX", brand: str = None, sentiment: str = None, month: str = None, limit: int = 30,
+    state: str = "TX", city: str = None, brand: str = None, sentiment: str = None, month: str = None,
+    theme: str = None, rating: int = None, limit: int = 30,
 ) -> list:
     """A browsable sample of individual reviews - rating, date, brand, text,
     sentiment label + reason - the "what was said" view under the trend
-    chart. Optionally scoped to one brand, one sentiment class, and/or one
-    month (pass the first-of-month date, e.g. "2026-03-01" - matches a
-    `month` value from review_trend()'s points)."""
+    chart. Optionally scoped to one city, one brand, one sentiment class,
+    one month (pass the first-of-month date, e.g. "2026-03-01" - matches a
+    `month` value from review_trend()'s points), one star rating (1-5),
+    and/or one theme (from voice.review_themes - see
+    categorize/review_themes.py's taxonomy).
+
+    When `theme` is given, `sentiment` is read as that THEME's sentiment
+    (rt.theme_sentiment), not the review's overall sentiment - the two can
+    differ (a review can be positive overall but negative on one aspect),
+    and the whole point of combining them is jumping here from one theme's
+    "why negative?" complaint summary with the exact matching reviews, not
+    a coincidentally-overall-negative one that isn't really about this
+    theme. Without `theme`, `sentiment` filters the review's own overall
+    sentiment as before."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -454,20 +657,32 @@ def review_sample(
                 JOIN voice.locations vl ON vl.location_id = r.location_id
                 JOIN voice.brands vb ON vb.brand_id = vl.brand_id
                 WHERE vl.state = %(state)s AND r.text IS NOT NULL
+                  AND (%(city)s::text IS NULL OR vl.city = %(city)s::text)
                   AND (%(brand)s::text IS NULL OR vb.name = %(brand)s::text)
-                  AND (%(sentiment)s::text IS NULL OR r.sentiment = %(sentiment)s::text)
                   AND (%(month)s::text IS NULL OR date_trunc('month', r.review_date) = %(month)s::date)
+                  AND (%(rating)s::int IS NULL OR r.rating = %(rating)s::int)
+                  AND (
+                    (%(theme)s::text IS NULL AND (%(sentiment)s::text IS NULL OR r.sentiment = %(sentiment)s::text))
+                    OR (%(theme)s::text IS NOT NULL AND EXISTS (
+                          SELECT 1 FROM voice.review_themes rt
+                          WHERE rt.review_id = r.review_id AND rt.theme = %(theme)s::text
+                            AND (%(sentiment)s::text IS NULL OR rt.theme_sentiment = %(sentiment)s::text)
+                        ))
+                  )
                 ORDER BY r.review_date DESC
                 LIMIT %(limit)s
-            """, {"state": state, "brand": brand, "sentiment": sentiment, "month": month, "limit": limit})
+            """, {
+                "state": state, "city": city, "brand": brand, "sentiment": sentiment,
+                "month": month, "theme": theme, "rating": rating, "limit": limit,
+            })
             rows = cur.fetchall()
     return [
         {
-            "brand": name, "mavis": family == "mavis", "city": city,
+            "brand": name, "mavis": family == "mavis", "city": city_,
             "rating": rating, "date": review_date.date().isoformat() if review_date else None,
             "text": text, "sentiment": sent, "reason": reason,
         }
-        for name, family, city, rating, review_date, text, sent, reason in rows
+        for name, family, city_, rating, review_date, text, sent, reason in rows
     ]
 
 
@@ -553,14 +768,26 @@ def reddit_comparisons() -> list:
     return out
 
 
-def reddit_sample(brand: str = None, sentiment: str = None, theme: str = None, limit: int = 30) -> list:
+def reddit_sample(
+    brand: str = None, sentiment: str = None, theme: str = None, aspect: str = None, limit: int = 30,
+) -> list:
     """A browsable sample of individual relevant Reddit mentions - title/
     text, subreddit, score, permalink (links out to the real thread), date,
     sentiment/theme/reason - the "what people are saying" view under the
     Reddit tab's summary tables. Optionally scoped to one brand, one
-    sentiment class, and/or one theme. Sorted by score (Reddit's own
+    sentiment class, one post-purpose `theme` (complaint/question/etc. -
+    categorize/reddit_sentiment.py), and/or one `aspect` (price/speed/
+    honesty/etc. - categorize/reddit_mention_themes.py, a DIFFERENT
+    classification pass from `theme`). Sorted by score (Reddit's own
     relevance/popularity signal), matching how a real customer would
-    actually encounter these results."""
+    actually encounter these results.
+
+    When `aspect` is given, `sentiment` is read as that aspect's own
+    sentiment (rmt.theme_sentiment), not the mention's overall sentiment -
+    same reasoning as review_sample's `theme` param: the two can differ,
+    and jumping here from one aspect's "why negative?" summary should show
+    the exact matching mentions, not a coincidentally-overall-negative one
+    that isn't really about this aspect."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -570,11 +797,18 @@ def reddit_sample(brand: str = None, sentiment: str = None, theme: str = None, l
                 JOIN voice.brands vb ON vb.brand_id = rm.brand_id
                 WHERE rm.is_relevant
                   AND (%(brand)s::text IS NULL OR vb.name = %(brand)s::text)
-                  AND (%(sentiment)s::text IS NULL OR rm.sentiment = %(sentiment)s::text)
                   AND (%(theme)s::text IS NULL OR rm.theme = %(theme)s::text)
+                  AND (
+                    (%(aspect)s::text IS NULL AND (%(sentiment)s::text IS NULL OR rm.sentiment = %(sentiment)s::text))
+                    OR (%(aspect)s::text IS NOT NULL AND EXISTS (
+                          SELECT 1 FROM voice.reddit_mention_themes rmt
+                          WHERE rmt.mention_id = rm.mention_id AND rmt.theme = %(aspect)s::text
+                            AND (%(sentiment)s::text IS NULL OR rmt.theme_sentiment = %(sentiment)s::text)
+                        ))
+                  )
                 ORDER BY rm.score DESC NULLS LAST, rm.created_at DESC
                 LIMIT %(limit)s
-            """, {"brand": brand, "sentiment": sentiment, "theme": theme, "limit": limit})
+            """, {"brand": brand, "sentiment": sentiment, "theme": theme, "aspect": aspect, "limit": limit})
             rows = cur.fetchall()
     return [
         {
@@ -585,6 +819,57 @@ def reddit_sample(brand: str = None, sentiment: str = None, theme: str = None, l
         }
         for name, family, mtype, subreddit, title, text, score, permalink, created_at, sent, theme_val, reason in rows
     ]
+
+
+def reddit_theme_mix(brand: str = None) -> list:
+    """Sentiment mix broken down by aspect theme (price, speed, honesty,
+    etc. - categorize/reddit_mention_themes.py) for relevant Reddit
+    mentions, optionally scoped to one brand - the Reddit-side analogue of
+    review_theme_mix, same shape so the frontend can reuse the same chart."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT rmt.theme, rmt.theme_sentiment, count(*)
+                FROM voice.reddit_mention_themes rmt
+                JOIN voice.reddit_mentions rm ON rm.mention_id = rmt.mention_id
+                JOIN voice.brands vb ON vb.brand_id = rm.brand_id
+                WHERE rm.is_relevant
+                  AND (%(brand)s::text IS NULL OR vb.name = %(brand)s::text)
+                GROUP BY rmt.theme, rmt.theme_sentiment
+            """, {"brand": brand})
+            rows = cur.fetchall()
+
+    by_theme: dict = {}
+    for theme, sentiment, n in rows:
+        bucket = by_theme.setdefault(theme, {"positive": 0, "neutral": 0, "negative": 0})
+        bucket[sentiment] = n
+
+    out = [
+        {"theme": theme, **counts, "total": counts["positive"] + counts["neutral"] + counts["negative"]}
+        for theme, counts in by_theme.items()
+    ]
+    out.sort(key=lambda r: r["total"], reverse=True)
+    return out
+
+
+def reddit_theme_texts(theme: str, brand: str = None, sentiment: str = "negative", limit: int = 25) -> list:
+    """Real mention text (title + body combined) for one aspect theme at one
+    theme-sentiment ('negative' for complaints, 'positive' for praise),
+    optionally scoped to one brand - the raw material for a live summary
+    call (categorize/theme_summary.py), same reasoning as
+    review_theme_texts."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT rm.title, rm.text FROM voice.reddit_mention_themes rmt
+                JOIN voice.reddit_mentions rm ON rm.mention_id = rmt.mention_id
+                JOIN voice.brands vb ON vb.brand_id = rm.brand_id
+                WHERE rmt.theme = %(theme)s AND rmt.theme_sentiment = %(sentiment)s AND rm.is_relevant
+                  AND (%(brand)s::text IS NULL OR vb.name = %(brand)s::text)
+                ORDER BY random() LIMIT %(limit)s
+            """, {"theme": theme, "brand": brand, "sentiment": sentiment, "limit": limit})
+            rows = cur.fetchall()
+    return [f"{title or ''}\n{text or ''}".strip() for title, text in rows]
 
 
 def state_summary(source: str = "google_maps") -> list:

@@ -29,6 +29,7 @@ import data_loaders as dl
 import signal_data as sd
 import synthesize
 import voice_data
+from categorize import theme_summary
 
 app = FastAPI(title="Brand Signal API")
 app.add_middleware(
@@ -772,14 +773,45 @@ def get_voice_rollup(state: str = None, city: str = None, source: str = "google_
 
 # Review-level dataset (Phase 3) - monthly volume + sentiment trend, and a
 # browsable sample of the underlying review text.
+@app.get("/api/voice/review-states")
+def get_voice_review_states():
+    return _clean(voice_data.review_states())
+
+
+@app.get("/api/voice/review-towns")
+def get_voice_review_towns(state: str = "TX"):
+    return _clean(voice_data.review_towns(state))
+
+
 @app.get("/api/voice/review-trend")
-def get_voice_review_trend(state: str = "TX"):
-    return _clean(voice_data.review_trend(state))
+def get_voice_review_trend(state: str = "TX", city: str = None, split_competitors: bool = False):
+    return _clean(voice_data.review_trend(state, city, split_competitors))
+
+
+@app.get("/api/voice/review-yoy")
+def get_voice_review_yoy(state: str = "TX", city: str = None, split_competitors: bool = False):
+    return _clean(voice_data.review_yoy(state, city, split_competitors))
+
+
+@app.get("/api/voice/review-theme-mix")
+def get_voice_review_theme_mix(state: str = "TX", city: str = None, brand: str = None):
+    return _clean(voice_data.review_theme_mix(state, city, brand))
+
+
+# On-demand (not precomputed) - a live single Haiku call over that theme's
+# reviews (negative by default - "complaints" - or positive - "praise") in
+# the current filter scope, so it stays correct as the state/city/brand
+# filters change instead of being baked in for one scope.
+@app.get("/api/voice/review-theme-complaints")
+def get_voice_review_theme_complaints(theme: str, state: str = "TX", city: str = None, brand: str = None, sentiment: str = "negative"):
+    texts = voice_data.review_theme_texts(theme, state, city, brand, sentiment)
+    summary = theme_summary.summarize_theme_texts(theme, texts, sentiment)
+    return _clean({"theme": theme, "n_reviews": len(texts), "summary": summary})
 
 
 @app.get("/api/voice/review-sample")
-def get_voice_review_sample(state: str = "TX", brand: str = None, sentiment: str = None, month: str = None, limit: int = 30):
-    return _clean(voice_data.review_sample(state, brand, sentiment, month, limit))
+def get_voice_review_sample(state: str = "TX", city: str = None, brand: str = None, sentiment: str = None, month: str = None, theme: str = None, rating: int = None, limit: int = 30):
+    return _clean(voice_data.review_sample(state, city, brand, sentiment, month, theme, rating, limit))
 
 
 # Head-to-head grid: every Mavis banner vs. every named competitor, cell =
@@ -862,8 +894,24 @@ def get_voice_reddit_comparisons():
 
 
 @app.get("/api/voice/reddit-sample")
-def get_voice_reddit_sample(brand: str = None, sentiment: str = None, theme: str = None, limit: int = 30):
-    return _clean(voice_data.reddit_sample(brand, sentiment, theme, limit))
+def get_voice_reddit_sample(brand: str = None, sentiment: str = None, theme: str = None, aspect: str = None, limit: int = 30):
+    return _clean(voice_data.reddit_sample(brand, sentiment, theme, aspect, limit))
+
+
+@app.get("/api/voice/reddit-theme-mix")
+def get_voice_reddit_theme_mix(brand: str = None):
+    return _clean(voice_data.reddit_theme_mix(brand))
+
+
+# Same on-demand (not precomputed) live-summary pattern as
+# /api/voice/review-theme-complaints - complaints (negative, default) or
+# praise (positive) - reuses categorize/theme_summary.py, which is generic
+# over "a theme label + a list of texts + a polarity," not review-specific.
+@app.get("/api/voice/reddit-theme-complaints")
+def get_voice_reddit_theme_complaints(theme: str, brand: str = None, sentiment: str = "negative"):
+    texts = voice_data.reddit_theme_texts(theme, brand, sentiment)
+    summary = theme_summary.summarize_theme_texts(theme, texts, sentiment)
+    return _clean({"theme": theme, "n_mentions": len(texts), "summary": summary})
 
 
 def _warm_cache_loop():
