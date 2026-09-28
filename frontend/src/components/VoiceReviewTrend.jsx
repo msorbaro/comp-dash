@@ -445,6 +445,56 @@ function YoyLeaderboard({ series, colorByName }) {
   )
 }
 
+const THEME_ORDER = Object.keys(THEME_LABELS)
+
+// One compact multi-attribute bar block per brand, all shown at once (no
+// brand selector) so brands are directly comparable - "is there a
+// difference in what customers are complaining about, by brand," per the
+// user's own framing. Each bar is % of that brand's own filtered-negative
+// reviews touching that theme negatively - a fixed theme row order across
+// every brand block so the same attribute lines up vertically and is easy
+// to scan across brands.
+function NegativeAttributeChart({ data }) {
+  if (data === null) return <div style={{ padding: 20, color: MUTED, fontSize: 12 }}>Loading…</div>
+  const withData = data.filter((b) => b.n_negative > 0)
+  if (withData.length === 0) return <div style={{ padding: 20, color: MUTED, fontSize: 12 }}>No matching reviews in this scope.</div>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {withData.map((b) => {
+        const byTheme = Object.fromEntries(b.themes.map((t) => [t.theme, t]))
+        return (
+          <div key={b.brand_id} style={{ background: b.mavis ? TEAL_WASH : 'transparent', borderRadius: 8, padding: b.mavis ? '10px 12px' : '0 0 4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: b.mavis ? 600 : 500 }}>
+                {b.logo && <img src={b.logo} alt="" width={14} height={14} style={{ borderRadius: 3, flex: 'none' }} onError={(e) => { e.currentTarget.style.display = 'none' }} />}
+                {b.name}
+                {b.mavis && <span style={{ color: TEAL_700, fontSize: 9, fontFamily: MONO, fontWeight: 600 }}>MAVIS</span>}
+              </div>
+              <div style={{ fontSize: 10.5, color: MUTED, fontFamily: MONO, flex: 'none' }}>{fmtNum(b.n_negative)} reviews</div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 20px' }}>
+              {THEME_ORDER.map((theme) => {
+                const pct = byTheme[theme]?.pct || 0
+                return (
+                  <div key={theme} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 112, flex: 'none', fontSize: 10, color: SLATE_600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {THEME_LABELS[theme]}
+                    </div>
+                    <div style={{ flex: 1, background: SLATE_200, height: 7, borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ width: `${pct * 100}%`, height: '100%', background: ROSE }} />
+                    </div>
+                    <div style={{ width: 32, flex: 'none', fontSize: 9.5, fontFamily: MONO, color: MUTED, textAlign: 'right' }}>{Math.round(pct * 100)}%</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function ThemeMixChart({ themes, complaintsByTheme, openTheme, onToggle, onSeeReviews }) {
   if (themes === null) return <div style={{ padding: 20, color: MUTED, fontSize: 12 }}>Loading…</div>
   if (themes.length === 0) return <div style={{ padding: 20, color: MUTED, fontSize: 12 }}>No themed reviews in this scope.</div>
@@ -533,17 +583,33 @@ export default function VoiceReviewTrend() {
   const [complaintsByTheme, setComplaintsByTheme] = useState({})
   const [openComplaintTheme, setOpenComplaintTheme] = useState(null)
 
+  // "Negative" here is defined by star rating (1-3), not the LLM sentiment
+  // label used everywhere else on this page - the user's own framing for
+  // this specific chart. All three selected by default.
+  const [negativeRatings, setNegativeRatings] = useState([1, 2, 3])
+  const [negativeThemeMix, setNegativeThemeMix] = useState(null)
+
   const [sampleBrand, setSampleBrand] = useState('')
   const [sampleSentiment, setSampleSentiment] = useState('')
   const [sampleTheme, setSampleTheme] = useState('')
   const [sampleRating, setSampleRating] = useState('')
   const [samples, setSamples] = useState(null)
 
+  // The full brand roster (every Mavis banner + every named competitor,
+  // unconditionally) - independent of the Blended/By competitor toggle
+  // above, which only controls how the multi-month trend/YoY charts group
+  // competitors together. "Sentiment & themes," "What people are talking
+  // about," and "What people are saying" all query one brand at a time by
+  // name, so they can offer every competitor individually regardless of
+  // that toggle's state.
+  const [allBrandOptions, setAllBrandOptions] = useState([])
+
   useEffect(() => {
     api.voiceReviewStates().then((rs) => {
       setReviewStates(rs)
       if (rs.length && !rs.some((s) => s.state === 'TX')) setStateFilter(rs[0].state)
     }).catch((e) => setError(e.message))
+    api.voiceBrandOptions().then(setAllBrandOptions).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -585,6 +651,19 @@ export default function VoiceReviewTrend() {
     return () => { cancelled = true }
   }, [stateFilter, cityFilter, detailSeries])
 
+  useEffect(() => {
+    let cancelled = false
+    setNegativeThemeMix(null)
+    api.voiceReviewNegativeThemeMix(stateFilter, { city: cityFilter || undefined, ratings: negativeRatings })
+      .then((d) => { if (!cancelled) setNegativeThemeMix(d) })
+      .catch(() => { if (!cancelled) setNegativeThemeMix([]) })
+    return () => { cancelled = true }
+  }, [stateFilter, cityFilter, negativeRatings])
+
+  const toggleNegativeRating = (n) => {
+    setNegativeRatings((prev) => (prev.includes(n) ? prev.filter((r) => r !== n) : [...prev, n].sort()))
+  }
+
   // Live, on-demand only (not fetched for every theme up front) - a real
   // Haiku call per theme, so it only runs for themes the user actually
   // opens.
@@ -624,6 +703,16 @@ export default function VoiceReviewTrend() {
   }
 
   const brandOptions = trend?.series.map((s) => s.name) || []
+  const allBrandNames = useMemo(() => allBrandOptions.map((b) => b.name), [allBrandOptions])
+  // Picking an individual competitor (not a Mavis banner) from the
+  // Sentiment/themes selectors only has a matching line in the trend/YoY
+  // charts once competitors are broken out individually - flip that toggle
+  // automatically rather than silently showing an empty chart.
+  const selectDetailBrand = (name) => {
+    setDetailSeries(name)
+    const info = allBrandOptions.find((b) => b.name === name)
+    if (info && info.family !== 'mavis') setSplitCompetitors(true)
+  }
   const competitorNames = useMemo(() => (trend?.series || []).filter((s) => !s.mavis).map((s) => s.name), [trend])
   const visibleSet = visibleCompetitors === null ? new Set(competitorNames) : visibleCompetitors
   const displayedTrendSeries = useMemo(
@@ -776,11 +865,27 @@ export default function VoiceReviewTrend() {
             )}
           </Section>
 
-          <Section title="Sentiment & themes" scope={`Filtered by ${stateLabel} · ${cityLabel} (filters above) · one brand at a time below — the competitor-view toggle above doesn't apply here`}>
+          <Section title="Sentiment & themes" scope={`Filtered by ${stateLabel} · ${cityLabel} (filters above) · one brand at a time below, any competitor included`}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Negative reviews by attribute</div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: MUTED, fontWeight: 600, marginRight: 2 }}>STARS:</span>
+                {[1, 2, 3].map((n) => (
+                  <button key={n} onClick={() => toggleNegativeRating(n)} style={pillStyle(negativeRatings.includes(n))}>{n}★</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ fontSize: 10.5, color: MUTED, marginBottom: 12 }}>
+              Every brand at once - among reviews with the star ratings selected above, what % mention each attribute as a specific complaint. Same fixed attribute order for every brand, so rows line up for comparison.
+            </div>
+            <NegativeAttributeChart data={negativeThemeMix} />
+
+            <RowDivider />
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
               <div style={{ fontSize: 11.5, color: MUTED }}>Showing <strong style={{ color: INK_TEXT }}>{detailSeries}</strong></div>
-              <select value={detailSeries || ''} onChange={(e) => setDetailSeries(e.target.value)} style={selectStyle()}>
-                {brandOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+              <select value={detailSeries || ''} onChange={(e) => selectDetailBrand(e.target.value)} style={selectStyle()}>
+                {allBrandNames.map((b) => <option key={b} value={b}>{b}</option>)}
               </select>
             </div>
 
@@ -802,8 +907,8 @@ export default function VoiceReviewTrend() {
                   <option value="">All towns</option>
                   {towns.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
-                <select value={detailSeries || ''} onChange={(e) => setDetailSeries(e.target.value)} style={selectStyle()}>
-                  {brandOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+                <select value={detailSeries || ''} onChange={(e) => selectDetailBrand(e.target.value)} style={selectStyle()}>
+                  {allBrandNames.map((b) => <option key={b} value={b}>{b}</option>)}
                 </select>
               </div>
             </div>
@@ -828,7 +933,7 @@ export default function VoiceReviewTrend() {
                   style={selectStyle()}
                 >
                   <option value="">All brands</option>
-                  {brandOptions.filter((b) => b !== 'Competitors').map((b) => <option key={b} value={b}>{b}</option>)}
+                  {allBrandNames.map((b) => <option key={b} value={b}>{b}</option>)}
                 </select>
                 <select value={sampleRating} onChange={(e) => setSampleRating(e.target.value)} style={selectStyle()}>
                   <option value="">All ratings</option>

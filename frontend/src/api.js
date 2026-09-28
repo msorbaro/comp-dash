@@ -79,6 +79,9 @@ export const api = {
     get(`/voice/review-theme-mix?state=${encodeURIComponent(state)}` +
       (city ? `&city=${encodeURIComponent(city)}` : '') +
       (brand ? `&brand=${encodeURIComponent(brand)}` : '')),
+  voiceReviewNegativeThemeMix: (state = 'TX', { city, ratings = [1, 2, 3] } = {}) =>
+    get(`/voice/review-negative-theme-mix?state=${encodeURIComponent(state)}&ratings=${ratings.join(',')}` +
+      (city ? `&city=${encodeURIComponent(city)}` : '')),
   // A live per-call summary (not precomputed), so give it a longer retry
   // budget than the default get() - it's a real-time Haiku call, not a
   // cached page, and 503s here would just mean "still starting up."
@@ -104,6 +107,7 @@ export const api = {
       (aspect ? `aspect=${encodeURIComponent(aspect)}&` : '') +
       `limit=${limit}`),
   voiceRedditThemeMix: (brand) => get(`/voice/reddit-theme-mix${brand ? `?brand=${encodeURIComponent(brand)}` : ''}`),
+  voiceRedditNegativeThemeMix: (sentiment = 'negative') => get(`/voice/reddit-negative-theme-mix?sentiment=${sentiment}`),
   voiceRedditThemeComplaints: (theme, brand, sentiment = 'negative') =>
     get(`/voice/reddit-theme-complaints?theme=${encodeURIComponent(theme)}&sentiment=${sentiment}${brand ? `&brand=${encodeURIComponent(brand)}` : ''}`, { retries: 3, retryDelayMs: 1500 }),
 }

@@ -62,6 +62,54 @@ const ASPECT_LABELS = {
   product_selection: 'Product selection', other: 'Other',
 }
 
+const ASPECT_ORDER = Object.keys(ASPECT_LABELS)
+
+// Same design as the Reviews page's NegativeAttributeChart - one compact
+// multi-attribute bar block per brand, all shown at once (no brand
+// selector) so brands are directly comparable. Reddit has no star rating,
+// so the "negative" population here is overall mention sentiment instead
+// (see reddit_negative_theme_mix's own docstring for that reasoning).
+function NegativeAttributeChart({ data }) {
+  if (data === null) return <div style={{ padding: 20, color: MUTED, fontSize: 12 }}>Loading…</div>
+  const withData = data.filter((b) => b.n_negative > 0)
+  if (withData.length === 0) return <div style={{ padding: 20, color: MUTED, fontSize: 12 }}>No matching mentions.</div>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {withData.map((b) => {
+        const byTheme = Object.fromEntries(b.themes.map((t) => [t.theme, t]))
+        return (
+          <div key={b.brand_id} style={{ background: b.mavis ? TEAL_WASH : 'transparent', borderRadius: 8, padding: b.mavis ? '10px 12px' : '0 0 4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: b.mavis ? 600 : 500 }}>
+                {b.logo && <img src={b.logo} alt="" width={14} height={14} style={{ borderRadius: 3, flex: 'none' }} onError={(e) => { e.currentTarget.style.display = 'none' }} />}
+                {b.name}
+                {b.mavis && <span style={{ color: TEAL_700, fontSize: 9, fontFamily: MONO, fontWeight: 600 }}>MAVIS</span>}
+              </div>
+              <div style={{ fontSize: 10.5, color: MUTED, fontFamily: MONO, flex: 'none' }}>{fmtNum(b.n_negative)} mentions</div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 20px' }}>
+              {ASPECT_ORDER.map((theme) => {
+                const pct = byTheme[theme]?.pct || 0
+                return (
+                  <div key={theme} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 112, flex: 'none', fontSize: 10, color: SLATE_600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {ASPECT_LABELS[theme]}
+                    </div>
+                    <div style={{ flex: 1, background: SLATE_200, height: 7, borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ width: `${pct * 100}%`, height: '100%', background: ROSE }} />
+                    </div>
+                    <div style={{ width: 32, flex: 'none', fontSize: 9.5, fontFamily: MONO, color: MUTED, textAlign: 'right' }}>{Math.round(pct * 100)}%</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function MixBar({ n_positive, n_neutral, n_negative }) {
   const total = n_positive + n_neutral + n_negative
   if (total === 0) return <span style={{ fontSize: 11, color: MUTED }}>—</span>
@@ -256,9 +304,24 @@ export default function VoiceRedditMentions() {
   const [samples, setSamples] = useState(null)
   const mentionsSectionRef = useRef(null)
 
+  // Reddit has no star rating, so the "which mentions count as negative"
+  // filter here is overall sentiment instead (default 'negative') - the
+  // closest Reddit-side equivalent to the Reviews page's 1/2/3-star filter.
+  const [negativeSentimentFilter, setNegativeSentimentFilter] = useState('negative')
+  const [negativeThemeMix, setNegativeThemeMix] = useState(null)
+
   useEffect(() => {
     api.voiceRedditSummary().then(setSummary).catch((e) => setError(e.message))
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setNegativeThemeMix(null)
+    api.voiceRedditNegativeThemeMix(negativeSentimentFilter)
+      .then((d) => { if (!cancelled) setNegativeThemeMix(d) })
+      .catch(() => { if (!cancelled) setNegativeThemeMix([]) })
+    return () => { cancelled = true }
+  }, [negativeSentimentFilter])
 
   useEffect(() => {
     let cancelled = false
@@ -314,6 +377,22 @@ export default function VoiceRedditMentions() {
       </div>
 
       {error && <div style={{ padding: 12, color: MUTED, fontSize: 12 }}>Couldn't load this view ({error}).</div>}
+
+      <Section title="Negative mentions by attribute" scope="Every brand at once, for comparison">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ fontSize: 10.5, color: MUTED, maxWidth: '52ch' }}>
+            Among mentions with the sentiment selected, what % mention each attribute as a specific complaint. Same fixed attribute order for every brand.
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {['negative', 'neutral', 'positive'].map((s) => (
+              <button key={s} onClick={() => setNegativeSentimentFilter(s)} style={pillStyle(negativeSentimentFilter === s)}>{s}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <NegativeAttributeChart data={negativeThemeMix} />
+        </div>
+      </Section>
 
       <Section title="Mentions by brand" scope="Click a brand row to see what its mentions are specifically about">
         {summary === null ? (

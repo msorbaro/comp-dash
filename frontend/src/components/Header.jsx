@@ -1,10 +1,7 @@
 import { INK, TEAL, SLATE_400 } from '../styles'
 
 const TABS = [
-  { id: 'landscape', label: 'Landscape' },
-  { id: 'brand', label: 'Brand deep dive' },
-  { id: 'category', label: 'Category rollup' },
-  { id: 'compare', label: 'Head to head' },
+  { id: 'marketing', label: 'Competitive Marketing' },
   { id: 'voice', label: 'Customer Voice' },
 ]
 
@@ -29,7 +26,7 @@ export default function Header({ screen, onNav }) {
       </div>
       <nav style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
         {TABS.map((t) => {
-          const active = screen === t.id || (t.id === 'brand' && screen === 'channel')
+          const active = screen === t.id
           return (
             <button
               key={t.id}

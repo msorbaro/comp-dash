@@ -798,6 +798,15 @@ def get_voice_review_theme_mix(state: str = "TX", city: str = None, brand: str =
     return _clean(voice_data.review_theme_mix(state, city, brand))
 
 
+# `ratings` is a comma-separated string ("1,2,3") rather than a repeated
+# query param - simpler to build/read on the frontend side and consistent
+# with how the rest of this file takes filters.
+@app.get("/api/voice/review-negative-theme-mix")
+def get_voice_review_negative_theme_mix(state: str = "TX", city: str = None, ratings: str = "1,2,3"):
+    rating_list = [int(r) for r in ratings.split(",") if r]
+    return _clean(voice_data.review_negative_theme_mix(state, city, rating_list))
+
+
 # On-demand (not precomputed) - a live single Haiku call over that theme's
 # reviews (negative by default - "complaints" - or positive - "praise") in
 # the current filter scope, so it stays correct as the state/city/brand
@@ -901,6 +910,11 @@ def get_voice_reddit_sample(brand: str = None, sentiment: str = None, theme: str
 @app.get("/api/voice/reddit-theme-mix")
 def get_voice_reddit_theme_mix(brand: str = None):
     return _clean(voice_data.reddit_theme_mix(brand))
+
+
+@app.get("/api/voice/reddit-negative-theme-mix")
+def get_voice_reddit_negative_theme_mix(sentiment: str = "negative"):
+    return _clean(voice_data.reddit_negative_theme_mix(sentiment))
 
 
 # Same on-demand (not precomputed) live-summary pattern as

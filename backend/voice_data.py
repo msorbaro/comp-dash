@@ -602,6 +602,60 @@ def review_theme_mix(state: str = "TX", city: str = None, brand: str = None) -> 
     return out
 
 
+def review_negative_theme_mix(state: str = "TX", city: str = None, ratings: list = None) -> list:
+    """Per brand: among reviews with a star rating in `ratings` (default
+    [1,2,3] - the caller's own definition of "negative," by star count, not
+    the LLM sentiment label used elsewhere), what % have each theme flagged
+    negative - "is there a difference in what customers are complaining
+    about, by brand" per the user's own framing. One row per brand (Mavis
+    and competitor alike), each carrying its own theme-by-% breakdown so
+    the frontend can compare brands side by side without a brand filter."""
+    ratings = ratings or [1, 2, 3]
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT vb.brand_id, vb.name, vb.family, c.website_url, count(*)
+                FROM voice.reviews r
+                JOIN voice.locations vl ON vl.location_id = r.location_id
+                JOIN voice.brands vb ON vb.brand_id = vl.brand_id
+                LEFT JOIN competitors c ON c.id = vb.competitor_id
+                WHERE vl.state = %(state)s AND r.rating = ANY(%(ratings)s)
+                  AND (%(city)s::text IS NULL OR vl.city = %(city)s::text)
+                GROUP BY vb.brand_id, vb.name, vb.family, c.website_url
+            """, {"state": state, "city": city, "ratings": ratings})
+            totals = cur.fetchall()
+
+            cur.execute("""
+                SELECT vb.brand_id, rt.theme, count(DISTINCT r.review_id)
+                FROM voice.reviews r
+                JOIN voice.locations vl ON vl.location_id = r.location_id
+                JOIN voice.brands vb ON vb.brand_id = vl.brand_id
+                JOIN voice.review_themes rt ON rt.review_id = r.review_id AND rt.theme_sentiment = 'negative'
+                WHERE vl.state = %(state)s AND r.rating = ANY(%(ratings)s)
+                  AND (%(city)s::text IS NULL OR vl.city = %(city)s::text)
+                GROUP BY vb.brand_id, rt.theme
+            """, {"state": state, "city": city, "ratings": ratings})
+            theme_counts = cur.fetchall()
+
+    by_brand_theme: dict = {}
+    for bid, theme, n in theme_counts:
+        by_brand_theme.setdefault(bid, {})[theme] = n
+
+    out = []
+    for bid, name, family, website_url, n_negative in totals:
+        themes = by_brand_theme.get(bid, {})
+        out.append({
+            "brand_id": bid, "name": name, "mavis": family == "mavis",
+            "logo": _favicon_url(name, website_url), "n_negative": n_negative,
+            "themes": [
+                {"theme": theme, "n": n, "pct": (n / n_negative) if n_negative else 0}
+                for theme, n in themes.items()
+            ],
+        })
+    out.sort(key=lambda r: (not r["mavis"], -r["n_negative"]))
+    return out
+
+
 def review_theme_texts(
     theme: str, state: str = "TX", city: str = None, brand: str = None, sentiment: str = "negative", limit: int = 25,
 ) -> list:
@@ -849,6 +903,54 @@ def reddit_theme_mix(brand: str = None) -> list:
         for theme, counts in by_theme.items()
     ]
     out.sort(key=lambda r: r["total"], reverse=True)
+    return out
+
+
+def reddit_negative_theme_mix(sentiment: str = "negative") -> list:
+    """Per brand: among relevant Reddit mentions with overall sentiment
+    `sentiment` (default 'negative' - Reddit has no star rating, so overall
+    sentiment is the closest analogue to review_negative_theme_mix's star-
+    rating filter), what % have each aspect theme flagged negative - same
+    shape and reasoning as review_negative_theme_mix, so the frontend can
+    reuse the same chart design."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT vb.brand_id, vb.name, vb.family, c.website_url, count(*)
+                FROM voice.reddit_mentions rm
+                JOIN voice.brands vb ON vb.brand_id = rm.brand_id
+                LEFT JOIN competitors c ON c.id = vb.competitor_id
+                WHERE rm.is_relevant AND rm.sentiment = %(sentiment)s
+                GROUP BY vb.brand_id, vb.name, vb.family, c.website_url
+            """, {"sentiment": sentiment})
+            totals = cur.fetchall()
+
+            cur.execute("""
+                SELECT vb.brand_id, rmt.theme, count(DISTINCT rm.mention_id)
+                FROM voice.reddit_mentions rm
+                JOIN voice.brands vb ON vb.brand_id = rm.brand_id
+                JOIN voice.reddit_mention_themes rmt ON rmt.mention_id = rm.mention_id AND rmt.theme_sentiment = 'negative'
+                WHERE rm.is_relevant AND rm.sentiment = %(sentiment)s
+                GROUP BY vb.brand_id, rmt.theme
+            """, {"sentiment": sentiment})
+            theme_counts = cur.fetchall()
+
+    by_brand_theme: dict = {}
+    for bid, theme, n in theme_counts:
+        by_brand_theme.setdefault(bid, {})[theme] = n
+
+    out = []
+    for bid, name, family, website_url, n_negative in totals:
+        themes = by_brand_theme.get(bid, {})
+        out.append({
+            "brand_id": bid, "name": name, "mavis": family == "mavis",
+            "logo": _favicon_url(name, website_url), "n_negative": n_negative,
+            "themes": [
+                {"theme": theme, "n": n, "pct": (n / n_negative) if n_negative else 0}
+                for theme, n in themes.items()
+            ],
+        })
+    out.sort(key=lambda r: (not r["mavis"], -r["n_negative"]))
     return out
 
 
