@@ -322,17 +322,23 @@ def _bulk_blob_map(table: str, col: str, ids: list) -> dict:
 # for the same (brand, channel) can't each open their own simultaneous
 # connection the way the old per-item loaders could before that was fixed.
 # `ids` must be a hashable tuple, not a list, to be usable as a cache key.
-@ttl_cache(maxsize=30)
+# maxsize is deliberately small (not just a count cap, a size one) - a
+# single entry here can hold hundreds of base64 images (one "See all"
+# click passes up to 500 ids), so even a handful of entries is a lot of
+# RAM; this is no longer fed by the proactive warm loop (which stopped
+# pre-warming the n=500 view) so in practice only a few on-demand
+# "See all" clicks occupy these slots at once.
+@ttl_cache(maxsize=12)
 def load_ig_thumbnails_bulk(ids: tuple) -> dict:
     return _bulk_blob_map("posts", "thumbnail", ids)
 
 
-@ttl_cache(maxsize=30)
+@ttl_cache(maxsize=12)
 def load_ad_creatives_bulk(ids: tuple) -> dict:
     return _bulk_blob_map("ads", "creative", ids)
 
 
-@ttl_cache(maxsize=30)
+@ttl_cache(maxsize=12)
 def load_google_ad_creatives_bulk(ids: tuple) -> dict:
     return _bulk_blob_map("google_ads", "creative", ids)
 

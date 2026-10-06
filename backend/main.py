@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from urllib.parse import urlparse
 
+import cachetools
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -109,7 +110,16 @@ def _clean(obj):
 # free-tier CPU that aggregation alone can take longer than the platform's
 # own connection timeout, so a live request must never compute it inline -
 # it has to read a result the background warm-up thread already produced.
-_page_cache: dict = {}
+#
+# LRU-bounded (not a plain dict) for the same reason data_loaders.py's
+# cache was: live browsing accumulates one entry per distinct
+# brand/channel/category/type_filter combo ever requested, each held
+# until its key happens to be requested again - on the free tier's 512MB
+# container that unbounded growth, combined with the channel cache's
+# embedded base64 creative images, was a real OOM contributor. maxsize
+# caps total entries so the oldest-unused ones get evicted once the warm
+# set plus incidental live browsing exceeds it.
+_page_cache = cachetools.LRUCache(maxsize=200)
 _page_cache_lock = threading.Lock()
 _PAGE_CACHE_TTL = 600  # seconds - warm thread refreshes every 480s, comfortably inside this
 
@@ -372,19 +382,20 @@ def _compute_brand(name: str):
     })
 
 
-# The (n_creatives, type_filter) combos the frontend requests with no
+# The (n_creatives, type_filter) combo the frontend requests with no
 # further user action: the Brand page's per-channel preview (see
-# frontend/src/screens/Brand.jsx's SECTION_CREATIVE_FETCH_N) and the
-# Channel "See all" page's full fetch (see Channel.jsx's CREATIVE_FETCH_N).
-# The "See all" size was left on live-compute-then-cache at first since it
-# used to be much more expensive - now that image loading is batched into
-# one query per channel instead of one per item, it's cheap enough to
-# proactively warm too, and a live "See all" click was still occasionally
-# failing when it happened to land while the warm loop was mid-cycle,
-# competing for the same throttled CPU/connections.
+# frontend/src/screens/Brand.jsx's SECTION_CREATIVE_FETCH_N). The Channel
+# "See all" page's full fetch (Channel.jsx's CREATIVE_FETCH_N, n=500) used
+# to be proactively warmed here too, but each of those entries embeds up to
+# 500 base64 creative images - held in _page_cache for every own brand x
+# every channel, every 8-minute cycle, this was easily the single largest
+# contributor to the container exceeding Render's free-tier 512MB limit.
+# n=500 now only computes on a real "See all" click (still cached for 600s
+# afterward so a second click is fast), not proactively for brands/channels
+# nobody is currently looking at.
 _DEFAULT_CHANNEL_N = 16
 _FULL_CHANNEL_N = 500
-_WARMED_CHANNEL_COMBOS = (_DEFAULT_CHANNEL_N, _FULL_CHANNEL_N)
+_WARMED_CHANNEL_COMBOS = (_DEFAULT_CHANNEL_N,)
 
 
 @app.get("/api/brand/channel")
