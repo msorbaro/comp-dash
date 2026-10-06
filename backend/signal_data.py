@@ -51,12 +51,18 @@ def is_channel_active(r: dict) -> bool:
     return r["channel"]["id"] == "homepage" or (r["volume"] / 3) >= ACTIVE_MONTHLY_THRESHOLD
 
 
-_NOW = pd.Timestamp.now(tz="UTC")
-
-
 def _tz_naive_now(series: pd.Series) -> pd.Timestamp:
+    # Called fresh every time, not read off a module-level constant - this
+    # used to be computed once at import time and reused for the life of
+    # the process, which was tolerable only because Render's free-tier
+    # idle-sleep incidentally restarted the process every ~15 minutes. Now
+    # that a keep-alive ping prevents that restart, the process can stay up
+    # for days, and every "days since"/recency check here (active-channel
+    # detection, lead_is_recent, 90-day windows, the >365-day staleness
+    # check) would have silently drifted further from the real time the
+    # longer it ran.
     if len(series) and getattr(series.dt, "tz", None) is not None:
-        return _NOW
+        return pd.Timestamp.now(tz="UTC")
     return pd.Timestamp.now()
 
 

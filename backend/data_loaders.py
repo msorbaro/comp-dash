@@ -21,19 +21,22 @@ TTL_SECONDS = 600
 # brands at once) all see "not cached" at the same instant and each opens
 # its own DB connection to reload the SAME table - confirmed as the actual
 # cause of live 500s after a fresh restart (up to 9 threads x 7 loaders,
-# comfortably exceeding Supabase's pooled connection limit). Keyed per
-# cache key (not one global lock) so unrelated tables still load in
-# parallel - only concurrent callers for the exact same key serialize.
-_LOCKS: dict = {}
-_LOCKS_GUARD = threading.Lock()
+# comfortably exceeding Supabase's pooled connection limit).
+#
+# A fixed array of lock buckets, hashed into by key, rather than one
+# dict entry per distinct key ever seen - a real dict here (the original
+# version of this) grew by one Lock object for every distinct post/ad/
+# video id ever requested, for the life of the process, which is the same
+# unbounded-growth problem as the caches above, just smaller. Bucketing by
+# hash keeps the lock set a fixed size forever; a hash collision just
+# means two unrelated keys occasionally serialize against each other on a
+# cache miss, which only costs a little contention, never correctness.
+_N_LOCK_BUCKETS = 256
+_LOCK_BUCKETS = [threading.Lock() for _ in range(_N_LOCK_BUCKETS)]
 
 
 def _lock_for(key):
-    with _LOCKS_GUARD:
-        lock = _LOCKS.get(key)
-        if lock is None:
-            lock = _LOCKS[key] = threading.Lock()
-        return lock
+    return _LOCK_BUCKETS[hash(key) % _N_LOCK_BUCKETS]
 
 
 # Every TTLCache created by ttl_cache() below, so clear_cache() can still

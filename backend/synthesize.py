@@ -10,13 +10,21 @@ scrape, so a long cache (hours) is the right tradeoff, not a 10-minute one.
 import functools
 import json
 import os
-import time
 
 import anthropic
+import cachetools
 
 MODEL = "claude-haiku-4-5"
 CACHE_TTL = 6 * 3600  # 6 hours
-_cache: dict = {}
+# Bounded, not a plain dict (same issue as data_loaders.py's and main.py's
+# caches): every key here embeds the actual caption/text content it was
+# computed from, so whenever the underlying scraped data changes, the
+# "same" logical brand/channel/category page gets a brand-new key - the
+# old one just sits there, unused, until something evicts it. A plain
+# dict never did; maxsize now bounds that growth to the warmed set plus a
+# reasonable amount of incidental live browsing, instead of the life of
+# the process.
+_cache = cachetools.TTLCache(maxsize=300, ttl=CACHE_TTL)
 _client = None
 
 
@@ -28,12 +36,11 @@ def _get_client():
 
 
 def _cached(key, fn):
-    now = time.time()
     hit = _cache.get(key)
-    if hit and now < hit[1]:
-        return hit[0]
+    if hit is not None:
+        return hit
     value = fn()
-    _cache[key] = (value, now + CACHE_TTL)
+    _cache[key] = value
     return value
 
 
