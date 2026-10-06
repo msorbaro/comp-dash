@@ -419,15 +419,17 @@ def get_category(name: str, focus_brand: str = ""):
         raise HTTPException(404, f"Unknown category: {name}")
     # focus_brand only tweaks an is_focus flag on the already-computed
     # result, so it's applied as a cheap post-step rather than fragmenting
-    # the cache (or, for "Our Brands", forcing a live recompute) per brand.
-    if name == "Our Brands":
-        # This is the page our own team actually lives in, so it's kept
-        # warm by the background thread like Landscape - never computed inline.
-        result = _cached_page("category:Our Brands", lambda: _compute_category(name), block_on_miss=False)
-        if result is None:
-            raise HTTPException(503, "Still warming up after a restart - this can take a minute or two on first load. Refresh shortly.")
-    else:
-        result = _cached_page(f"category:{name}", lambda: _compute_category(name))
+    # the cache per brand.
+    # Every category (not just "Our Brands") is kept warm by the background
+    # thread - never computed inline on a request. _compute_category makes
+    # one live Claude call per channel, sequentially; running that inline on
+    # a cold visit to, say, "Automotive Discount" was slow enough on the
+    # free tier's throttled CPU to occasionally collide with Render's own
+    # edge limits for an overloaded free instance (seen as a bare 429 on
+    # the request, with nothing logged on our side - it never reached here).
+    result = _cached_page(f"category:{name}", lambda: _compute_category(name), block_on_miss=False)
+    if result is None:
+        raise HTTPException(503, "Still warming up after a restart - this can take a minute or two on first load. Refresh shortly.")
     if focus_brand:
         result = {**result, "members": [{**m, "is_focus": m["company"] == focus_brand} for m in result["members"]]}
     return result
@@ -441,7 +443,15 @@ def _compute_category(name: str):
     members = sorted(cp["profiles"], key=lambda p: -p["mix"][0])
     outlier_names = {o["company"] for o in cp["outliers"]}
 
-    channel_rows = []
+    # Per-channel pandas aggregation is cheap/CPU-only - compute it for
+    # every active channel first, then fire the one slow part (the
+    # cross-brand Claude themes call) for all of them concurrently instead
+    # of sequentially, same pattern _compute_brand already uses for its
+    # per-channel synthesis. Sequential Claude calls here (one per channel,
+    # up to 7) is what made a cold/uncached category page slow enough to
+    # occasionally collide with Render's own edge limits for an overloaded
+    # free instance.
+    channel_bases = []
     for ch in sd.CHANNELS:
         all_rows = [sd.channel_data(n, ch["id"], data) for n in brand_names]
         used_rows = [r for r in all_rows if sd.is_channel_active(r)]
@@ -454,14 +464,22 @@ def _compute_category(name: str):
         total_volume_90 = sum(r["volume"] for r in all_rows)
         mix = [round(sum(r["split"][i] for r in rs_active) / len(rs_active)) for i in range(3)]
         mix[2] = 100 - mix[0] - mix[1]
-        sample_texts = sd.category_channel_sample_texts(brand_names, ch["id"], data)
-        themes = synthesize.category_channel_themes(name, ch["name"], sample_texts)
-        channel_rows.append({
+        channel_bases.append({
             "channel": ch, "mix": mix,
             "brands_using": len(used_rows), "brands_total": len(brand_names),
             "total_volume_90": total_volume_90, "avg_volume": round(total_volume_90 / len(brand_names), 1),
-            "themes": themes,
+            "sample_texts": sd.category_channel_sample_texts(brand_names, ch["id"], data),
         })
+
+    with ThreadPoolExecutor(max_workers=max(len(channel_bases), 1)) as pool:
+        themes_list = list(pool.map(
+            lambda cb: synthesize.category_channel_themes(name, cb["channel"]["name"], cb["sample_texts"]),
+            channel_bases,
+        ))
+    channel_rows = [
+        {**{k: v for k, v in cb.items() if k != "sample_texts"}, "themes": themes}
+        for cb, themes in zip(channel_bases, themes_list)
+    ]
     channel_rows.sort(key=lambda cr: -cr["brands_using"])
 
     # Real classified attribute counts for this category's own stage output
@@ -993,6 +1011,21 @@ def _warm_cache_loop():
                 list(pool.map(
                     lambda t: _safe_refresh(f"volume:{t[0]}:{t[1]}", lambda: _compute_volume(t[0], t[1])),
                     volume_tasks,
+                ))
+                # Pass 4: every other category's rollup page - "Our Brands"
+                # was the only category computed above; every other one
+                # (Oil Brands, Automotive Discount, ...) used to compute
+                # live on a cold visit instead, which is slow (one
+                # sequential Claude call per channel) and was the actual
+                # cause of a bare 429 on /api/category: the request never
+                # even reached this app's own error handling, it was
+                # Render's edge rejecting an overloaded free instance mid-
+                # computation. Warming these the same way removes that
+                # live-compute path entirely.
+                other_categories = [c for c in _all_categories() if c != "Our Brands"]
+                list(pool.map(
+                    lambda cat: _safe_refresh(f"category:{cat}", lambda: _compute_category(cat)),
+                    other_categories,
                 ))
         except Exception as e:
             print(f"[warm-cache] cycle failed: {e}", flush=True)
