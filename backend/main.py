@@ -952,8 +952,12 @@ def _warm_cache_loop():
             # brand blocked every other brand's page from ever becoming
             # available). A thread pool runs them concurrently instead;
             # _safe_refresh keeps one failing brand/channel from aborting
-            # the rest of the batch.
-            with ThreadPoolExecutor(max_workers=9) as pool:
+            # the rest of the batch. Capped at 4 (not 9) workers - 9
+            # concurrent pandas+LLM+image-loading jobs was spiking memory
+            # enough, on the free tier's 512MB container, to get OOM-killed
+            # mid-cycle, which is what was behind the repeated Render
+            # "service crashed" emails.
+            with ThreadPoolExecutor(max_workers=4) as pool:
                 # Pass 1: every own brand's main page, all at once.
                 list(pool.map(
                     lambda name: _safe_refresh(f"brand:{name}", lambda: _compute_brand(name)),

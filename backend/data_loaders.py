@@ -5,16 +5,15 @@ import base64
 import functools
 import sys
 import threading
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import cachetools
 import pandas as pd
 
 from db.connection import get_conn
 
-_CACHE: dict = {}
 TTL_SECONDS = 600
 
 # Per-key locks so a cold cache doesn't stampede: without this, N concurrent
@@ -37,28 +36,56 @@ def _lock_for(key):
         return lock
 
 
-def ttl_cache(fn):
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        key = (fn.__name__, args, tuple(sorted(kwargs.items())))
-        now = time.time()
-        cached = _CACHE.get(key)
-        if cached is not None and now < cached[1]:
-            return cached[0]
-        with _lock_for(key):
-            # Another thread may have already populated this key while we
-            # were waiting for the lock - re-check before hitting the DB.
-            cached = _CACHE.get(key)
-            if cached is not None and time.time() < cached[1]:
-                return cached[0]
-            value = fn(*args, **kwargs)
-            _CACHE[key] = (value, time.time() + TTL_SECONDS)
-            return value
-    return wrapper
+# Every TTLCache created by ttl_cache() below, so clear_cache() can still
+# reset everything at once.
+_ALL_CACHES: list = []
+
+
+def ttl_cache(fn=None, *, maxsize=8):
+    """TTL cache, bounded per-function by maxsize (LRU-evicted once full).
+    The plain-dict version of this cache never evicted anything - a key
+    (built from the call's args) stuck around until its TTL happened to be
+    re-requested, so the per-id blob loaders (one brand-new key for every
+    distinct post/ad/video id ever asked for, each holding a base64 image
+    or video) grew for the entire life of the process. On Render's
+    512MB-RAM free tier that unbounded growth was the actual cause of the
+    container getting OOM-killed and restarted (which is what Render's
+    "service crashed" emails were reporting). maxsize defaults low since
+    most loaders here take no args (there's only ever one real cache
+    entry); callers with many distinct ids (thumbnails, ad creatives,
+    video blobs) pass an explicit, deliberately small maxsize."""
+    def decorator(fn):
+        cache = cachetools.TTLCache(maxsize=maxsize, ttl=TTL_SECONDS)
+        cache_guard = threading.Lock()
+        _ALL_CACHES.append(cache)
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            with cache_guard:
+                if key in cache:
+                    return cache[key]
+            with _lock_for((fn.__name__, key)):
+                # Another thread may have already populated this key while
+                # we were waiting for the lock - re-check before hitting
+                # the DB.
+                with cache_guard:
+                    if key in cache:
+                        return cache[key]
+                value = fn(*args, **kwargs)
+                with cache_guard:
+                    cache[key] = value
+                return value
+        return wrapper
+
+    if fn is not None:
+        return decorator(fn)
+    return decorator
 
 
 def clear_cache():
-    _CACHE.clear()
+    for cache in _ALL_CACHES:
+        cache.clear()
 
 
 def to_data_uri(raw: bytes) -> str:
@@ -87,7 +114,7 @@ def load_posts() -> pd.DataFrame:
     return df
 
 
-@ttl_cache
+@ttl_cache(maxsize=200)
 def load_ig_thumbnail(post_id: int):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -120,7 +147,7 @@ def load_homepage_snapshots() -> pd.DataFrame:
     return df
 
 
-@ttl_cache
+@ttl_cache(maxsize=200)
 def load_screenshot(snapshot_id: int):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -151,7 +178,7 @@ def load_ads() -> pd.DataFrame:
     return df
 
 
-@ttl_cache
+@ttl_cache(maxsize=200)
 def load_ad_creative(ad_id: int):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -160,7 +187,7 @@ def load_ad_creative(ad_id: int):
     return to_data_uri(row[0]) if row and row[0] else None
 
 
-@ttl_cache
+@ttl_cache(maxsize=15)  # video blobs are the biggest single entries - keep this tight
 def load_ad_video_b64(ad_id: int):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -189,7 +216,7 @@ def load_tiktok() -> pd.DataFrame:
     return df
 
 
-@ttl_cache
+@ttl_cache(maxsize=200)
 def load_tiktok_thumbnail(video_id: int):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -216,7 +243,7 @@ def load_youtube() -> pd.DataFrame:
     return df
 
 
-@ttl_cache
+@ttl_cache(maxsize=200)
 def load_youtube_thumbnail(video_id: int):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -262,7 +289,7 @@ def load_google_ads() -> pd.DataFrame:
     return df
 
 
-@ttl_cache
+@ttl_cache(maxsize=200)
 def load_google_ad_creative(ad_id: int):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -295,17 +322,17 @@ def _bulk_blob_map(table: str, col: str, ids: list) -> dict:
 # for the same (brand, channel) can't each open their own simultaneous
 # connection the way the old per-item loaders could before that was fixed.
 # `ids` must be a hashable tuple, not a list, to be usable as a cache key.
-@ttl_cache
+@ttl_cache(maxsize=30)
 def load_ig_thumbnails_bulk(ids: tuple) -> dict:
     return _bulk_blob_map("posts", "thumbnail", ids)
 
 
-@ttl_cache
+@ttl_cache(maxsize=30)
 def load_ad_creatives_bulk(ids: tuple) -> dict:
     return _bulk_blob_map("ads", "creative", ids)
 
 
-@ttl_cache
+@ttl_cache(maxsize=30)
 def load_google_ad_creatives_bulk(ids: tuple) -> dict:
     return _bulk_blob_map("google_ads", "creative", ids)
 
