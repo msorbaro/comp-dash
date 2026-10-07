@@ -365,10 +365,15 @@ def _compute_brand(name: str):
     # Claude calls (one per active channel, plus one for positioning) -
     # running them sequentially took 28s for an active brand like PetSmart,
     # long enough to time out a cold visit since only "Our Brands" pages are
-    # proactively warmed; every other tracked company computes live on
-    # first request. Run them concurrently instead, same pattern as the
-    # warm-cache loop.
-    with ThreadPoolExecutor(max_workers=len(rows) + 1) as pool:
+    # proactively warmed; every other tracked company (there are ~45 of
+    # them) computes live on first request, with no warm cache to fall
+    # back on. Run them concurrently instead, same pattern as the warm-
+    # cache loop - but capped, not unbounded by channel count: this runs
+    # on a live request, possibly while the warm loop's own thread pool is
+    # already mid-cycle, and an uncapped pool here was extra concurrent
+    # memory pressure on the free tier's 512MB ceiling at the worst
+    # possible time (a user actively waiting on the page).
+    with ThreadPoolExecutor(max_workers=min(len(rows) + 1, 4)) as pool:
         positioning_future = pool.submit(synthesize.brand_positioning, name, sd.brand_sample_texts(name, data))
         rows = list(pool.map(lambda r: _attach_synthesis(name, r, data), rows))
         positioning = positioning_future.result()
@@ -482,7 +487,7 @@ def _compute_category(name: str):
             "sample_texts": sd.category_channel_sample_texts(brand_names, ch["id"], data),
         })
 
-    with ThreadPoolExecutor(max_workers=max(len(channel_bases), 1)) as pool:
+    with ThreadPoolExecutor(max_workers=min(max(len(channel_bases), 1), 4)) as pool:
         themes_list = list(pool.map(
             lambda cb: synthesize.category_channel_themes(name, cb["channel"]["name"], cb["sample_texts"]),
             channel_bases,
