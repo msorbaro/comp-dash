@@ -1,4 +1,34 @@
-# Customer Voice pilot scope - USPS state codes only, US locations only.
+# Customer Voice scope - USPS state codes only, US locations only.
 # Phases 1-2 (location + ratings census) run against exactly this list.
-# Change this to expand/contract the pilot; do not hardcode states in code.
+# Change this to expand/contract the scope; do not hardcode states in code.
+#
+# `active_states` is what the runners default to. Both runners also take
+# --states / --batch to override it for a single run, which is the safer way
+# to expand: pulling a new batch costs real Apify credits, and the per-state
+# cost differs enormously between the two sources (see below).
+active_states: [TX, FL, OH, NC, AZ]
+
+# Backwards-compatible alias - scripts/run_voice_phase1and2.py read this key
+# before --states/--batch existed. Kept in sync with active_states.
 pilot_states: [TX, FL, OH, NC, AZ]
+
+# East -> west rollout, in the order the user asked for (east coast first,
+# working west). Run a batch with:
+#   python -m scripts.run_voice_phase1and2 --batch northeast
+#   python -m scripts.run_voice_apple_maps  --batch northeast --estimate
+#
+# Cost shape differs sharply by source, measured from the completed TX pull:
+#   - Google census: 1 actor run per (brand, state) = 21 runs per state.
+#   - Apple Maps:    1 actor run per (brand, city)  = 991 runs for TX alone.
+# So a Google batch is cheap and predictable; always --estimate an Apple
+# Maps batch before running it.
+rollout_batches:
+  # Mavis's home turf - densest own-brand footprint, highest analytical value.
+  northeast: [NY, NJ, PA, CT, MA, RI, NH, VT, ME]
+  # Rest of the Atlantic seaboard (NC, FL already done).
+  mid_atlantic: [DE, MD, DC, VA, WV, SC, GA]
+  # Great Lakes / Midwest (OH already done).
+  midwest: [MI, IN, IL, WI, MN, IA, MO, KY, TN]
+  south_central: [AL, MS, LA, AR, OK, KS, NE]
+  mountain: [CO, NM, UT, NV, MT, WY, ID, ND, SD]
+  pacific: [CA, OR, WA, AK, HI]

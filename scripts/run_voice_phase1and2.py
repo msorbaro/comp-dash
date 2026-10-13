@@ -4,22 +4,36 @@ Prints exactly what was asked to review before any further phase or
 additional Apify spend: per-brand location counts by state, and the list of
 place names that couldn't be confidently matched to a brand.
 
-Run with:  python -m scripts.run_voice_phase1and2
+Google Maps ratings (totalScore/reviewsCount) come back on the same actor
+call as the location census, so this one run covers both phases for a
+state - there's no separate Google ratings pass to run afterwards. Apple
+Maps is a separate, much more expensive pass; see
+scripts/run_voice_apple_maps.py.
+
+Costs ~21 Apify actor runs per state (one per brand). Already-completed
+(brand, state) combos are skipped via voice.location_census_runs, so
+re-running after expanding the scope only pays for what's new.
+
+Run with:  python -m scripts.run_voice_phase1and2                 # config scope
+           python -m scripts.run_voice_phase1and2 --batch northeast
+           python -m scripts.run_voice_phase1and2 --states NY,NJ,PA
 """
+import argparse
 import datetime as dt
 import pathlib
 
-import yaml
-
 from voice import places
+from voice.scope import add_scope_args, resolve_states
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
-def run():
-    pilot_states = yaml.safe_load(
-        (ROOT / "config" / "voice_pilot_states.yaml").read_text()
-    )["pilot_states"]
+def run(states=None):
+    if states is None:
+        parser = argparse.ArgumentParser(description="Customer Voice Phase 1+2 (Google census)")
+        add_scope_args(parser)
+        states = resolve_states(parser.parse_args())
+    pilot_states = states
 
     print(f"Running Phase 1 (locations) + Phase 2 (ratings) for states: {pilot_states}", flush=True)
     report = places.run(pilot_states)
@@ -32,7 +46,11 @@ def run():
     }
 
     today = dt.date.today().isoformat()
-    lines = [f"# Customer Voice - Phase 1 & 2 run - {today}", ""]
+    lines = [
+        f"# Customer Voice - Phase 1 & 2 run - {today}",
+        f"States: {', '.join(pilot_states)}",
+        "",
+    ]
 
     lines.append("## Location counts by brand x state")
     failed_combos = []
@@ -71,7 +89,11 @@ def run():
 
     logs_dir = ROOT / "logs"
     logs_dir.mkdir(exist_ok=True)
-    (logs_dir / f"voice-phase1and2-{today}.md").write_text("\n".join(lines) + "\n")
+    # States in the filename, not just the date - rolling out east->west
+    # means several batches can run on the same day, and the original
+    # date-only name made each one clobber the last one's report.
+    scope_slug = "-".join(pilot_states) if len(pilot_states) <= 6 else f"{len(pilot_states)}states"
+    (logs_dir / f"voice-phase1and2-{today}-{scope_slug}.md").write_text("\n".join(lines) + "\n")
 
     print("\n".join(lines))
 
