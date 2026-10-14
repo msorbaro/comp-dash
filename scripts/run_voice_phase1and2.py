@@ -53,16 +53,28 @@ def run(states=None):
     ]
 
     lines.append("## Location counts by brand x state")
+    # Three distinct outcomes, not two: a combo present with a count ran and
+    # succeeded, present-but-None ran and FAILED, and one absent entirely was
+    # skipped because an earlier run already completed it (places.run only
+    # ever puts attempted combos in `counts`). Collapsing "skipped" into
+    # "FAILED" made a clean retry run look like 9 failures when only 3 combos
+    # were actually outstanding - alarming, and it hid the real list.
     failed_combos = []
     brand_names = sorted({b for b, _s in report["counts"]})
     for brand in brand_names:
-        row_counts = {s: report["counts"].get((brand, s)) for s in pilot_states}
-        for s, n in row_counts.items():
+        cells, total = [], 0
+        for s in pilot_states:
+            if (brand, s) not in report["counts"]:
+                cells.append(f"{s}=skipped")
+                continue
+            n = report["counts"][(brand, s)]
             if n is None:
                 failed_combos.append((brand, s))
-        total = sum(n for n in row_counts.values() if n is not None)
-        rendered = ", ".join(f"{s}={'FAILED' if n is None else n}" for s, n in row_counts.items())
-        lines.append(f"- **{brand}** (total {total}): {rendered}")
+                cells.append(f"{s}=FAILED")
+            else:
+                total += n
+                cells.append(f"{s}={n}")
+        lines.append(f"- **{brand}** (total {total} this run): {', '.join(cells)}")
 
     if failed_combos:
         lines.append("")
