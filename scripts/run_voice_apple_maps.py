@@ -96,15 +96,19 @@ def run(states=None, limit=None, do_estimate=False):
         print(f"\n=== Apple Maps: {state} ===", flush=True)
         report = apple_maps_ratings.run(state, limit=limit)
         grand_written += report["n_written"]
+        failed = report.get("n_scrape_failed", 0)
         lines.append(
             f"- **{state}**: {report['n_written']} ratings written across "
             f"{report['n_groups']} (brand, city) groups "
             f"({report['groups_skipped']} skipped as already done, "
-            f"{len(report['unmatched_location_ids'])} locations unmatched)"
+            f"{len(report['unmatched_location_ids'])} locations unmatched"
+            + (f", {failed} groups left unrecorded after scrape failures" if failed else "")
+            + ")"
         )
         print(
             f"{state}: wrote {report['n_written']} ratings, "
-            f"{len(report['unmatched_location_ids'])} unmatched",
+            f"{len(report['unmatched_location_ids'])} unmatched"
+            + (f", {failed} scrape failures to retry" if failed else ""),
             flush=True,
         )
 

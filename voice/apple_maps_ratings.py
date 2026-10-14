@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from apify_client import ApifyClient
@@ -24,6 +25,19 @@ from scraper.apify_client import dataset_id
 ACTOR_ID = "karamelo/apple-maps-scraper"
 MAX_WORKERS = 5
 MAX_RESULTS_PER_QUERY = 20
+
+MAX_SEARCH_ATTEMPTS = 3
+# This actor exits with Status: SUCCEEDED even when its proxy session never
+# initialized and it therefore scraped nothing - confirmed live, 828 of 1902
+# runs in a single batch failed this way ("Failed to initialize session:
+# Client network socket disconnected", "Proxy responded with 590
+# UPSTREAM502") while every one of them still reported success. An empty
+# dataset on its own cannot distinguish "Apple has no such listing" from
+# "the scrape never ran", and treating the second as the first is what put
+# ~840 (brand, city) groups into voice.apple_maps_rating_runs as completed
+# when they had never actually been searched - permanently, since a
+# completed group is skipped on every later run.
+_FAILURE_MARKERS = ("Failed to initialize session", "Fatal scraper error")
 
 
 def _clean_rating(value) -> float | None:
@@ -75,17 +89,49 @@ def _locations_by_brand_city(state: str) -> dict:
     return groups
 
 
-def _search_apple_maps(client: ApifyClient, brand_name: str, city: str, state: str) -> list:
-    run = client.actor(ACTOR_ID).call(run_input={
-        "searchQueries": [{"query": brand_name, "location": f"{city}, {state}", "maxResults": MAX_RESULTS_PER_QUERY}],
-        "proxyConfiguration": {"useApifyProxy": True},
-    })
-    return list(client.dataset(dataset_id(run)).iterate_items())
+def _scrape_failed(client: ApifyClient, run: dict) -> bool:
+    """Whether an empty result came from the actor failing rather than from
+    Apple genuinely having no match - read off the run's own log, since the
+    run status is SUCCEEDED either way (see _FAILURE_MARKERS above)."""
+    try:
+        log_text = client.run(run["id"]).log().get() or ""
+    except Exception:  # noqa: BLE001 - best-effort; never fail a group over the log fetch
+        return False
+    return any(marker in log_text for marker in _FAILURE_MARKERS)
+
+
+def _search_apple_maps(client: ApifyClient, brand_name: str, city: str, state: str) -> tuple:
+    """Returns (items, failed). `failed` is True only when every attempt hit
+    an actor-level failure, and it must keep the caller from recording this
+    group as completed - a group marked done is never retried, so swallowing
+    a transient proxy failure here loses that group's ratings permanently."""
+    for attempt in range(MAX_SEARCH_ATTEMPTS):
+        run = client.actor(ACTOR_ID).call(run_input={
+            "searchQueries": [{"query": brand_name, "location": f"{city}, {state}", "maxResults": MAX_RESULTS_PER_QUERY}],
+            "proxyConfiguration": {"useApifyProxy": True},
+        })
+        items = list(client.dataset(dataset_id(run)).iterate_items())
+        if items:
+            return items, False
+        if not _scrape_failed(client, run):
+            return [], False  # a real "Apple Maps has nothing here"
+        if attempt < MAX_SEARCH_ATTEMPTS - 1:
+            time.sleep(2 * (attempt + 1))
+    return [], True
 
 
 def _process_group(client: ApifyClient, key: tuple, candidates: list, state: str) -> dict:
     brand_id, brand_name, aliases, city = key
-    items = _search_apple_maps(client, brand_name, city, state)
+    items, scrape_failed = _search_apple_maps(client, brand_name, city, state)
+    if scrape_failed:
+        # Deliberately NOT writing the apple_maps_rating_runs marker, so this
+        # group stays eligible for a retry on the next run instead of being
+        # recorded as a confirmed no-match it never actually was.
+        return {
+            "brand_name": brand_name, "city": city, "n_candidates": len(candidates),
+            "n_written": 0, "n_apple_maps_results": 0, "unmatched_location_ids": [],
+            "scrape_failed": True,
+        }
     matched_items = [i for i in items if _match_alias(i.get("name") or "", list(aliases))]
 
     n_written = 0
@@ -140,6 +186,7 @@ def _process_group(client: ApifyClient, key: tuple, candidates: list, state: str
         "brand_name": brand_name, "city": city, "n_candidates": len(candidates),
         "n_written": n_written, "n_apple_maps_results": len(items),
         "unmatched_location_ids": unmatched_location_ids,
+        "scrape_failed": False,
     }
 
 
@@ -148,7 +195,8 @@ def run(state: str, limit: int | None = None) -> dict:
     if limit:
         groups = dict(list(groups.items())[:limit])
     if not groups:
-        return {"n_groups": 0, "n_written": 0, "groups_skipped": 0, "unmatched_location_ids": []}
+        return {"n_groups": 0, "n_written": 0, "groups_skipped": 0,
+                "unmatched_location_ids": [], "n_scrape_failed": 0}
 
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -163,6 +211,7 @@ def run(state: str, limit: int | None = None) -> dict:
     client = ApifyClient(os.environ["APIFY_TOKEN"])
     n_written = 0
     unmatched_location_ids = []
+    n_scrape_failed = 0
     done = 0
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
@@ -177,6 +226,14 @@ def run(state: str, limit: int | None = None) -> dict:
                 continue
             n_written += result["n_written"]
             unmatched_location_ids.extend(result["unmatched_location_ids"])
+            if result.get("scrape_failed"):
+                n_scrape_failed += 1
+                print(
+                    f"[{done}/{len(tasks)}] {result['brand_name']} / {result['city']}: "
+                    f"SCRAPE FAILED after {MAX_SEARCH_ATTEMPTS} attempts - left unrecorded for retry",
+                    flush=True,
+                )
+                continue
             print(
                 f"[{done}/{len(tasks)}] {result['brand_name']} / {result['city']}: "
                 f"{result['n_written']}/{result['n_candidates']} matched "
@@ -184,7 +241,15 @@ def run(state: str, limit: int | None = None) -> dict:
                 flush=True,
             )
 
+    if n_scrape_failed:
+        print(
+            f"\n{state}: {n_scrape_failed} group(s) could not be scraped (actor/proxy failures). "
+            f"They were NOT recorded as done - re-run this state to retry them.",
+            flush=True,
+        )
+
     return {
         "n_groups": len(groups), "n_written": n_written,
         "groups_skipped": skipped, "unmatched_location_ids": unmatched_location_ids,
+        "n_scrape_failed": n_scrape_failed,
     }
