@@ -27,7 +27,13 @@ load_dotenv()
 # connections rather than just concurrent connect attempts. The retry loop
 # is a safety net for whatever contention still gets through.
 _CONN_SEMAPHORE = threading.Semaphore(6)
-_MAX_CONNECT_ATTEMPTS = 4
+# 6 attempts with exponential backoff (~1+2+4+8+16 = 31s of waiting), not 4
+# attempts at 0.5s steps (~3s total). A saturated pooler refuses new
+# connections for far longer than 3s - confirmed live, a census run lost 28
+# combos to "connection timeout expired" while a stray backend process held
+# the pool, and every one of those combos had already paid for its Apify
+# fetch. Waiting out a saturated pool is always cheaper than re-scraping.
+_MAX_CONNECT_ATTEMPTS = 6
 
 
 def get_conn():
@@ -51,7 +57,7 @@ def get_conn():
                 break
             except psycopg.Error as e:
                 last_err = e
-                time.sleep(0.5 * (attempt + 1))
+                time.sleep(min(2 ** attempt, 16))
         if conn is None:
             raise last_err
     except BaseException:

@@ -23,6 +23,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from apify_client import ApifyClient
@@ -32,7 +33,17 @@ from scraper.apify_client import dataset_id
 from voice.us_states import STATE_NAME_BY_CODE
 
 ACTOR_ID = "compass/crawler-google-places"
-MAX_WORKERS = 5
+# 3, not 5: at 5 a mid_atlantic run saturated Supabase's pooler and 28 of
+# 147 combos died with "connection timeout expired" - each one AFTER its
+# Apify fetch had already been billed, so the scrape was paid for and the
+# results thrown away. Fewer concurrent writers is the cheap half of the
+# fix; _WRITE_ATTEMPTS below is the half that actually protects paid work.
+MAX_WORKERS = 3
+
+# The Apify fetch is already paid for by the time the write block runs, so a
+# transient pooler failure there must never discard the results - retry with
+# backoff instead of losing the combo and re-paying on the next run.
+_WRITE_ATTEMPTS = 5
 
 # Safety ceiling, not a typical binding constraint - even the most
 # location-dense brand realistically has well under this many stores in a
@@ -144,6 +155,37 @@ def _process_one(client: ApifyClient, brand_id: int, brand_name: str, aliases: l
 
     kept = _dedupe(kept)
 
+    last_err = None
+    for attempt in range(_WRITE_ATTEMPTS):
+        try:
+            n, unmatched, rating_rows = _write_combo(brand_id, brand_name, aliases, state_code, kept)
+            break
+        except Exception as exc:  # noqa: BLE001 - retry, don't throw away a paid fetch
+            last_err = exc
+            if attempt < _WRITE_ATTEMPTS - 1:
+                delay = min(2 ** attempt * 2, 30)
+                print(
+                    f"  {brand_name} / {state_code}: write attempt {attempt + 1}/{_WRITE_ATTEMPTS} "
+                    f"failed ({exc}); retrying in {delay}s",
+                    flush=True,
+                )
+                time.sleep(delay)
+    else:
+        raise last_err
+
+    return {
+        "brand_name": brand_name, "state_code": state_code, "n": n,
+        "category_drops": category_drops, "non_us_dropped": non_us_dropped,
+        "unmatched": unmatched, "rating_rows": rating_rows,
+    }
+
+
+def _write_combo(brand_id: int, brand_name: str, aliases: list, state_code: str, kept: list) -> tuple:
+    """The whole write for one combo, as one retryable unit. Returns
+    (n, unmatched, rating_rows) and is all-or-nothing per attempt: the
+    location upserts, their rating snapshots, and the census-run marker
+    share one transaction, so a failed attempt leaves nothing half-written
+    and a retry can't double-count."""
     n, unmatched, rating_rows = 0, [], []
     with get_conn() as conn:
         with conn:
@@ -200,11 +242,7 @@ def _process_one(client: ApifyClient, brand_id: int, brand_name: str, aliases: l
                     (brand_id, state_code),
                 )
 
-    return {
-        "brand_name": brand_name, "state_code": state_code, "n": n,
-        "category_drops": category_drops, "non_us_dropped": non_us_dropped,
-        "unmatched": unmatched, "rating_rows": rating_rows,
-    }
+    return n, unmatched, rating_rows
 
 
 def run(pilot_state_codes: list) -> dict:
