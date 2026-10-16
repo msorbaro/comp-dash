@@ -26,7 +26,7 @@ load_dotenv()
 # just the connect() call, so it actually bounds concurrently-OPEN
 # connections rather than just concurrent connect attempts. The retry loop
 # is a safety net for whatever contention still gets through.
-_CONN_SEMAPHORE = threading.Semaphore(6)
+_CONN_SEMAPHORE = threading.Semaphore(12)
 # 6 attempts with exponential backoff (~1+2+4+8+16 = 31s of waiting), not 4
 # attempts at 0.5s steps (~3s total). A saturated pooler refuses new
 # connections for far longer than 3s - confirmed live, a census run lost 28

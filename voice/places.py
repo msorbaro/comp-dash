@@ -30,15 +30,22 @@ from apify_client import ApifyClient
 
 from db.connection import get_conn
 from scraper.apify_client import dataset_id
-from voice.us_states import STATE_NAME_BY_CODE
+from voice.us_states import STATE_CODE_BY_NAME, STATE_NAME_BY_CODE
 
 ACTOR_ID = "compass/crawler-google-places"
-# 3, not 5: at 5 a mid_atlantic run saturated Supabase's pooler and 28 of
-# 147 combos died with "connection timeout expired" - each one AFTER its
-# Apify fetch had already been billed, so the scrape was paid for and the
-# results thrown away. Fewer concurrent writers is the cheap half of the
-# fix; _WRITE_ATTEMPTS below is the half that actually protects paid work.
-MAX_WORKERS = 3
+# The bottleneck is Apify actor runtime (~5 min per combo), not the DB - the
+# DB work is one short transaction at the end of each combo - so throughput
+# scales almost linearly with this. Apify allows 128 concurrent runs.
+#
+# It was briefly 3, after a run at 5 saturated Supabase's pooler and lost 28
+# of 147 combos to "connection timeout expired" - each AFTER its Apify fetch
+# had been billed, so the scrape was paid for and thrown away. That incident
+# had three causes, and the other two are gone: a local dev backend and an
+# orphaned 18-day-old backend process were both hammering the same pooler.
+# With those gone, _WRITE_ATTEMPTS protecting the paid work, and a patient
+# connect budget in db/connection.py, 8 is safe - and the semaphore there is
+# what actually bounds concurrent DB connections regardless of this number.
+MAX_WORKERS = 8
 
 # The Apify fetch is already paid for by the time the write block runs, so a
 # transient pooler failure there must never discard the results - retry with
@@ -91,6 +98,21 @@ def _match_alias(title: str, aliases: list) -> str | None:
     return None
 
 
+def _place_state(place: dict, searched_state_code: str) -> str:
+    """The place's OWN state, falling back to the state we searched.
+
+    Recording the searched state unconditionally (what this used to do) is
+    wrong for border results: the actor's state-scoped search does return
+    places just over the line, so a Killeen TX store surfaced by an Oklahoma
+    search got stored as OK. Harmless-looking until the ZIP-based county
+    backfill assigned its real county, producing impossible pairs like
+    "Tulsa County, FL" - 8 of them across the first 30 states - which then
+    broke county_delta's UNIQUE (county_fips, source) index and blocked the
+    whole metrics refresh."""
+    code = STATE_CODE_BY_NAME.get((place.get("state") or "").strip())
+    return code or searched_state_code
+
+
 def _haversine_m(lat1, lng1, lat2, lng2) -> float:
     r = 6371000
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -124,14 +146,29 @@ def _dedupe(places: list) -> list:
 
 
 def _fetch_places(client: ApifyClient, search_terms: list, state_name: str) -> list:
-    run = client.actor(ACTOR_ID).call(run_input={
-        "searchStringsArray": search_terms,
-        "countryCode": "us",
-        "state": state_name,
-        "maxCrawledPlacesPerSearch": MAX_PLACES_PER_SEARCH,
-        "language": "en",
-        "skipClosedPlaces": True,
-    })
+    run = client.actor(ACTOR_ID).call(
+        run_input={
+            "searchStringsArray": search_terms,
+            "countryCode": "us",
+            "state": state_name,
+            "maxCrawledPlacesPerSearch": MAX_PLACES_PER_SEARCH,
+            "language": "en",
+            "skipClosedPlaces": True,
+        },
+        # Both bounds matter, and neither is set by default.
+        #
+        # timeout_secs caps the actor run itself. wait_secs caps how long we
+        # block waiting for it: without it, .call() long-polls forever, and
+        # when the laptop's network dropped mid-run two worker threads were
+        # left blocked on dead sockets. The thread pool then never drained,
+        # the census process never exited, and the whole chained rollout sat
+        # there for ~20 hours with 2 combos "in flight" and nothing running.
+        # A combo that blows these bounds raises, which _process_one treats
+        # as a normal failure: the combo is left unrecorded and simply gets
+        # retried on the next pass.
+        timeout_secs=1800,
+        wait_secs=2100,
+    )
     return list(client.dataset(dataset_id(run)).iterate_items())
 
 
@@ -211,7 +248,8 @@ def _write_combo(brand_id: int, brand_name: str, aliases: list, state_code: str,
                            RETURNING location_id""",
                         {
                             "brand_id": brand_id, "place_id": p["placeId"], "name": p.get("title"),
-                            "street": p.get("street"), "city": p.get("city"), "state": state_code,
+                            "street": p.get("street"), "city": p.get("city"),
+                            "state": _place_state(p, state_code),
                             "zip": p.get("postalCode"), "country_code": p.get("countryCode"),
                             "lat": loc.get("lat"), "lng": loc.get("lng"), "category": p.get("categoryName"),
                         },
